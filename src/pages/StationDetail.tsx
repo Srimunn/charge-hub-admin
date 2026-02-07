@@ -15,9 +15,14 @@ import {
   CheckCircle,
   AlertTriangle,
   XCircle,
+  Shield,
+  Target,
+  Search,
+  Wifi,
 } from 'lucide-react';
-import { mockStations } from '@/data/mockData';
+import { mockStations, mockStationHealth } from '@/data/mockData';
 import { useToast } from '@/hooks/use-toast';
+import { format } from 'date-fns';
 
 const StationDetail = () => {
   const { stationId } = useParams();
@@ -213,6 +218,53 @@ const StationDetail = () => {
             </CardContent>
           </Card>
         </div>
+
+        {/* Health & Diagnostics */}
+        {(() => {
+          const health = mockStationHealth.find(h => h.stationId === station.id);
+          if (!health) return null;
+          const items = [
+            { label: 'Alignment System', value: health.alignment, icon: <Target className="w-5 h-5" />, ok: health.alignment === 'ok' },
+            { label: 'FOD System', value: health.fod, icon: <Search className="w-5 h-5" />, ok: health.fod === 'ok' },
+            { label: 'Thermal Status', value: health.thermal, icon: <Thermometer className="w-5 h-5" />, ok: health.thermal === 'normal' },
+            { label: 'Communication', value: health.communication, icon: <Wifi className="w-5 h-5" />, ok: health.communication === 'online' },
+          ];
+          return (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Shield className="w-5 h-5" />
+                  Health & Diagnostics
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {items.map(item => (
+                    <div key={item.label} className={`flex items-center gap-3 p-4 rounded-lg border ${item.ok ? 'bg-success/10 border-success/20' : 'bg-destructive/10 border-destructive/20'}`}>
+                      {item.icon}
+                      <div>
+                        <p className="text-xs text-muted-foreground">{item.label}</p>
+                        <p className={`font-medium capitalize ${item.ok ? 'text-success' : 'text-destructive'}`}>
+                          {item.ok ? (item.label === 'FOD System' || item.label === 'Alignment System' ? 'OK' : item.value) : (item.label === 'FOD System' || item.label === 'Alignment System' ? 'Fault' : item.value)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-4 rounded-lg bg-secondary/50">
+                    <p className="text-sm text-muted-foreground">Last Fault Time</p>
+                    <p className="font-medium">{health.lastFaultTime ? format(health.lastFaultTime, 'MMM dd, HH:mm') : 'No faults recorded'}</p>
+                  </div>
+                  <div className="p-4 rounded-lg bg-secondary/50">
+                    <p className="text-sm text-muted-foreground">Last Maintenance Action</p>
+                    <p className="font-medium">{health.lastMaintenanceAction || 'None'}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         {/* Controls */}
         <Card>

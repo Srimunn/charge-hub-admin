@@ -22,6 +22,7 @@ const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
   { icon: Radio, label: 'Stations', path: '/stations' },
   { icon: Zap, label: 'Live Sessions', path: '/sessions' },
+  { icon: AlertTriangle, label: 'Faults & Alerts', path: '/faults' },
   { icon: AlertTriangle, label: 'Safety & Faults', path: '/safety' },
   { icon: DollarSign, label: 'Pricing', path: '/pricing' },
   { icon: BarChart3, label: 'Reports', path: '/reports' },

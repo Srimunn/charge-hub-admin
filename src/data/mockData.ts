@@ -468,3 +468,174 @@ export const stationUtilizationData = mockStations.map(station => ({
   name: station.name.split(' ')[0],
   utilization: Math.floor(Math.random() * 40) + 50,
 }));
+
+// ===== Fault & Troubleshooting Data =====
+
+export type FaultType = 'misalignment' | 'over_temperature' | 'foreign_object' | 'communication_loss' | 'collision';
+export type FaultSeverity = 'high' | 'medium' | 'low';
+export type FaultStatus = 'open' | 'acknowledged' | 'resolved';
+
+export interface Fault {
+  id: string;
+  stationId: string;
+  sessionId: string | null;
+  type: FaultType;
+  severity: FaultSeverity;
+  status: FaultStatus;
+  timestamp: Date;
+  resolvedAt: Date | null;
+  description: string;
+  sensorValues: Record<string, string>;
+  lastKnownState: string;
+  timeline: { time: Date; event: string }[];
+}
+
+export interface StationHealth {
+  stationId: string;
+  alignment: 'ok' | 'fault';
+  fod: 'ok' | 'fault';
+  thermal: 'normal' | 'high';
+  communication: 'online' | 'offline';
+  lastFaultTime: Date | null;
+  lastMaintenanceAction: string | null;
+}
+
+const faultDescriptions: Record<FaultType, string> = {
+  misalignment: 'Vehicle coil misaligned with charging pad beyond acceptable threshold',
+  over_temperature: 'Thermal sensor exceeded safe operating temperature limit',
+  foreign_object: 'Foreign metallic object detected on charging pad surface',
+  communication_loss: 'Communication link with station controller interrupted',
+  collision: 'Physical impact detected on charging infrastructure',
+};
+
+export const mockFaults: Fault[] = [
+  {
+    id: 'FLT-001', stationId: 'STN-004', sessionId: 'SES-010', type: 'over_temperature', severity: 'high', status: 'open',
+    timestamp: new Date(Date.now() - 1800000), resolvedAt: null,
+    description: faultDescriptions.over_temperature,
+    sensorValues: { 'Coil Temp': '72°C', 'Ambient Temp': '35°C', 'Power Draw': '11.2 kW' },
+    lastKnownState: 'Charging at 11.2 kW, SOC 45%',
+    timeline: [
+      { time: new Date(Date.now() - 1800000), event: 'Temperature threshold exceeded (72°C > 65°C)' },
+      { time: new Date(Date.now() - 1750000), event: 'Charging power reduced to 5 kW' },
+      { time: new Date(Date.now() - 1700000), event: 'Fault alert generated' },
+    ],
+  },
+  {
+    id: 'FLT-002', stationId: 'STN-006', sessionId: null, type: 'communication_loss', severity: 'high', status: 'acknowledged',
+    timestamp: new Date(Date.now() - 7200000), resolvedAt: null,
+    description: faultDescriptions.communication_loss,
+    sensorValues: { 'Last Signal': '2h ago', 'Network': 'Timeout', 'Ping': 'No response' },
+    lastKnownState: 'Idle, no active session',
+    timeline: [
+      { time: new Date(Date.now() - 7200000), event: 'Last heartbeat received' },
+      { time: new Date(Date.now() - 7080000), event: 'Missed 3 consecutive heartbeats' },
+      { time: new Date(Date.now() - 7000000), event: 'Communication loss fault triggered' },
+      { time: new Date(Date.now() - 5400000), event: 'Technician dispatched' },
+    ],
+  },
+  {
+    id: 'FLT-003', stationId: 'STN-002', sessionId: 'SES-002', type: 'misalignment', severity: 'medium', status: 'open',
+    timestamp: new Date(Date.now() - 900000), resolvedAt: null,
+    description: faultDescriptions.misalignment,
+    sensorValues: { 'X Offset': '+12 mm', 'Y Offset': '-8 mm', 'Coupling': '78%' },
+    lastKnownState: 'Charging at reduced efficiency 78%',
+    timeline: [
+      { time: new Date(Date.now() - 900000), event: 'Alignment deviation detected (>10 mm)' },
+      { time: new Date(Date.now() - 850000), event: 'Efficiency dropped below 80%' },
+    ],
+  },
+  {
+    id: 'FLT-004', stationId: 'STN-007', sessionId: null, type: 'foreign_object', severity: 'medium', status: 'open',
+    timestamp: new Date(Date.now() - 3600000), resolvedAt: null,
+    description: faultDescriptions.foreign_object,
+    sensorValues: { 'FOD Sensor': 'Triggered', 'Object Size': '~50 mm', 'Material': 'Metallic' },
+    lastKnownState: 'Station idle, charging blocked',
+    timeline: [
+      { time: new Date(Date.now() - 3600000), event: 'FOD sensor triggered' },
+      { time: new Date(Date.now() - 3590000), event: 'Charging pad locked out' },
+    ],
+  },
+  {
+    id: 'FLT-005', stationId: 'STN-004', sessionId: 'SES-010', type: 'collision', severity: 'high', status: 'open',
+    timestamp: new Date(Date.now() - 1200000), resolvedAt: null,
+    description: faultDescriptions.collision,
+    sensorValues: { 'Impact Force': '450 N', 'Accelerometer': 'Peak 3.2g', 'Structural': 'Check Required' },
+    lastKnownState: 'Emergency shutdown initiated',
+    timeline: [
+      { time: new Date(Date.now() - 1200000), event: 'Impact detected by accelerometer' },
+      { time: new Date(Date.now() - 1195000), event: 'Emergency shutdown triggered' },
+      { time: new Date(Date.now() - 1190000), event: 'Station locked — manual inspection required' },
+    ],
+  },
+  {
+    id: 'FLT-006', stationId: 'STN-001', sessionId: 'SES-001', type: 'misalignment', severity: 'low', status: 'resolved',
+    timestamp: new Date(Date.now() - 86400000), resolvedAt: new Date(Date.now() - 82800000),
+    description: faultDescriptions.misalignment,
+    sensorValues: { 'X Offset': '+6 mm', 'Y Offset': '-3 mm', 'Coupling': '92%' },
+    lastKnownState: 'Charging resumed after vehicle repositioning',
+    timeline: [
+      { time: new Date(Date.now() - 86400000), event: 'Minor alignment deviation detected' },
+      { time: new Date(Date.now() - 85800000), event: 'User notified to reposition' },
+      { time: new Date(Date.now() - 82800000), event: 'Vehicle repositioned, fault cleared' },
+    ],
+  },
+  {
+    id: 'FLT-007', stationId: 'STN-003', sessionId: null, type: 'over_temperature', severity: 'low', status: 'resolved',
+    timestamp: new Date(Date.now() - 172800000), resolvedAt: new Date(Date.now() - 169200000),
+    description: faultDescriptions.over_temperature,
+    sensorValues: { 'Coil Temp': '66°C', 'Ambient Temp': '38°C', 'Power Draw': '9.8 kW' },
+    lastKnownState: 'Temperature normalized after load reduction',
+    timeline: [
+      { time: new Date(Date.now() - 172800000), event: 'Temperature warning (66°C)' },
+      { time: new Date(Date.now() - 172200000), event: 'Power reduced to 5 kW' },
+      { time: new Date(Date.now() - 169200000), event: 'Temperature normalized (52°C)' },
+    ],
+  },
+  {
+    id: 'FLT-008', stationId: 'STN-005', sessionId: 'SES-004', type: 'foreign_object', severity: 'medium', status: 'resolved',
+    timestamp: new Date(Date.now() - 259200000), resolvedAt: new Date(Date.now() - 255600000),
+    description: faultDescriptions.foreign_object,
+    sensorValues: { 'FOD Sensor': 'Triggered', 'Object Size': '~30 mm', 'Material': 'Unknown' },
+    lastKnownState: 'Object removed by maintenance crew',
+    timeline: [
+      { time: new Date(Date.now() - 259200000), event: 'FOD sensor triggered' },
+      { time: new Date(Date.now() - 258600000), event: 'Maintenance crew dispatched' },
+      { time: new Date(Date.now() - 255600000), event: 'Object removed, pad cleared' },
+    ],
+  },
+];
+
+export const mockStationHealth: StationHealth[] = mockStations.map(station => ({
+  stationId: station.id,
+  alignment: station.coilStatus === 'fault' ? 'fault' as const : 'ok' as const,
+  fod: station.sensorStatus === 'fault' ? 'fault' as const : 'ok' as const,
+  thermal: station.temperature > 50 ? 'high' as const : 'normal' as const,
+  communication: station.status === 'offline' ? 'offline' as const : 'online' as const,
+  lastFaultTime: mockFaults.find(f => f.stationId === station.id)?.timestamp || null,
+  lastMaintenanceAction: station.status === 'maintenance' ? 'Power electronics repair — 1h ago' : null,
+}));
+
+// Fault analytics data
+export const faultsByStationData = mockStations.map(station => ({
+  station: station.id,
+  name: station.name.split(' ')[0],
+  faults: mockFaults.filter(f => f.stationId === station.id).length,
+}));
+
+export const faultsByTypeData: { type: string; count: number }[] = [
+  { type: 'Misalignment', count: mockFaults.filter(f => f.type === 'misalignment').length },
+  { type: 'Over-Temp', count: mockFaults.filter(f => f.type === 'over_temperature').length },
+  { type: 'FOD', count: mockFaults.filter(f => f.type === 'foreign_object').length },
+  { type: 'Comm Loss', count: mockFaults.filter(f => f.type === 'communication_loss').length },
+  { type: 'Collision', count: mockFaults.filter(f => f.type === 'collision').length },
+];
+
+export const downtimeByFaultData = [
+  { month: 'Jan', downtime: 12 },
+  { month: 'Feb', downtime: 8 },
+  { month: 'Mar', downtime: 15 },
+  { month: 'Apr', downtime: 6 },
+  { month: 'May', downtime: 22 },
+  { month: 'Jun', downtime: 18 },
+];
