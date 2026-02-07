@@ -14,6 +14,8 @@ import Pricing from "./pages/Pricing";
 import Reports from "./pages/Reports";
 import UsersPage from "./pages/Users";
 import Settings from "./pages/Settings";
+import FaultsAlerts from "./pages/FaultsAlerts";
+import FaultDetail from "./pages/FaultDetail";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -31,6 +33,8 @@ const App = () => (
             <Route path="/stations" element={<Stations />} />
             <Route path="/stations/:stationId" element={<StationDetail />} />
             <Route path="/sessions" element={<Sessions />} />
+            <Route path="/faults" element={<FaultsAlerts />} />
+            <Route path="/faults/:faultId" element={<FaultDetail />} />
             <Route path="/safety" element={<Safety />} />
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/reports" element={<Reports />} />
