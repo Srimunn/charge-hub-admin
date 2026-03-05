@@ -83,7 +83,7 @@ const Reports = () => {
           <Card>
             <CardContent className="p-4 text-center">
               <p className="text-sm text-muted-foreground">Total Revenue (Month)</p>
-              <p className="text-2xl font-bold mt-1">$46,800</p>
+              <p className="text-2xl font-bold mt-1">₹46,800</p>
               <Badge variant="outline" className="mt-2 text-success border-success">+8.3%</Badge>
             </CardContent>
           </Card>
@@ -158,8 +158,8 @@ const Reports = () => {
                 <LineChart data={monthlyRevenueData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" fontSize={12} />
-                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickFormatter={(v) => `$${v/1000}k`} />
-                  <Tooltip contentStyle={chartTooltipStyle} formatter={(value: number) => [`$${value.toLocaleString()}`, 'Revenue']} />
+                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickFormatter={(v) => `₹${v/1000}k`} />
+                  <Tooltip contentStyle={chartTooltipStyle} formatter={(value: number) => [`₹${value.toLocaleString()}`, 'Revenue']} />
                   <Line type="monotone" dataKey="revenue" stroke="hsl(var(--success))" strokeWidth={3} dot={{ fill: 'hsl(var(--success))' }} />
                 </LineChart>
               </ResponsiveContainer>

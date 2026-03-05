@@ -45,7 +45,7 @@ export function ActiveSessions() {
                 </div>
                 <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
                   <span>{session.stationId}</span>
-                  <span>${session.revenue.toFixed(2)}</span>
+                  <span>₹{session.revenue.toFixed(2)}</span>
                 </div>
               </div>
             </div>

@@ -136,7 +136,7 @@ const Sessions = () => {
               <div className="p-3 rounded-xl bg-info/10"><DollarSign className="w-6 h-6 text-info" /></div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Revenue</p>
-                <p className="text-2xl font-bold">${totalRevenue.toFixed(2)}</p>
+                <p className="text-2xl font-bold">₹{totalRevenue.toFixed(2)}</p>
               </div>
             </CardContent>
           </Card>
@@ -179,7 +179,7 @@ const Sessions = () => {
                     </TableCell>
                     <TableCell className="hidden sm:table-cell">{session.chargingPower} kW</TableCell>
                     <TableCell className="hidden sm:table-cell">{formatDuration(session.duration)}</TableCell>
-                    <TableCell>${session.revenue.toFixed(2)}</TableCell>
+                    <TableCell>₹{session.revenue.toFixed(2)}</TableCell>
                     <TableCell>{getStatusBadge(session.displayStatus)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">

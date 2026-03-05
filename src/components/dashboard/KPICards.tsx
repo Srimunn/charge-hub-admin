@@ -38,7 +38,7 @@ export function KPICards() {
     },
     {
       title: 'Revenue Today',
-      value: `$${revenueToday.toFixed(2)}`,
+      value: `₹${revenueToday.toFixed(2)}`,
       change: '+12.5% vs yesterday',
       icon: DollarSign,
       gradient: 'gradient-warning',

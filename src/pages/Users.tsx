@@ -59,7 +59,7 @@ const UsersPage = () => {
       );
       toast({
         title: 'Usage Limit Set',
-        description: `Usage limit updated to $${usageLimit}`,
+        description: `Usage limit updated to ₹${usageLimit}`,
       });
       setSelectedUser(null);
       setUsageLimit('');
@@ -136,7 +136,7 @@ const UsersPage = () => {
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                       <div className="space-y-2">
-                        <Label htmlFor="limit">Monthly Limit ($)</Label>
+                        <Label htmlFor="limit">Monthly Limit (₹)</Label>
                         <Input
                           id="limit"
                           type="number"
