@@ -61,7 +61,7 @@ const Pricing = () => {
             <CardContent className="space-y-6">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="pricePerKwh">Price per kWh ($)</Label>
+                  <Label htmlFor="pricePerKwh">Price per kWh (₹)</Label>
                   <Input
                     id="pricePerKwh"
                     type="number"
@@ -71,7 +71,7 @@ const Pricing = () => {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="pricePerMinute">Price per Minute ($)</Label>
+                  <Label htmlFor="pricePerMinute">Price per Minute (₹)</Label>
                   <Input
                     id="pricePerMinute"
                     type="number"
@@ -177,11 +177,11 @@ const Pricing = () => {
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Zap className="w-4 h-4" />
-                      <span>${tariff.pricePerKwh}/kWh</span>
+                      <span>₹{tariff.pricePerKwh}/kWh</span>
                     </div>
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Clock className="w-4 h-4" />
-                      <span>${tariff.pricePerMinute}/min</span>
+                      <span>₹{tariff.pricePerMinute}/min</span>
                     </div>
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <span className="text-xs">Peak: {tariff.peakMultiplier}x</span>
@@ -208,7 +208,7 @@ const Pricing = () => {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Avg Revenue/Session</p>
-                <p className="text-2xl font-bold">$15.70</p>
+                <p className="text-2xl font-bold">₹15.70</p>
               </div>
             </CardContent>
           </Card>

@@ -138,7 +138,7 @@ const StationDetail = () => {
                 </div>
                 <div className="p-4 rounded-lg bg-secondary/50">
                   <p className="text-sm text-muted-foreground">Total Revenue</p>
-                  <p className="font-medium">${station.totalRevenue.toLocaleString()}</p>
+                  <p className="font-medium">₹{station.totalRevenue.toLocaleString()}</p>
                 </div>
               </div>
             </CardContent>

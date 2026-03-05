@@ -20,7 +20,7 @@ export function RevenuePerStationChart() {
             <YAxis 
               stroke="hsl(var(--muted-foreground))"
               fontSize={12}
-              tickFormatter={(value) => `$${value}`}
+              tickFormatter={(value) => `₹${value}`}
             />
             <Tooltip 
               contentStyle={{
@@ -29,7 +29,7 @@ export function RevenuePerStationChart() {
                 borderRadius: '8px',
               }}
               labelStyle={{ color: 'hsl(var(--foreground))' }}
-              formatter={(value: number) => [`$${value}`, 'Revenue']}
+              formatter={(value: number) => [`₹${value}`, 'Revenue']}
             />
             <Bar 
               dataKey="revenue" 

@@ -2,29 +2,29 @@
 @tailwind components;
 @tailwind utilities;
 
-/* EV Charging Station Dashboard Design System */
+/* EV Charging Station Dashboard Design System — Navy Blue Theme */
 
 @layer base {
   :root {
-    --background: 210 20% 98%;
-    --foreground: 222 47% 11%;
+    --background: 210 15% 96%;
+    --foreground: 220 20% 10%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 220 20% 10%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 220 20% 10%;
 
-    --primary: 210 100% 50%;
+    --primary: 207 78% 18%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 220 14% 96%;
-    --secondary-foreground: 222 47% 11%;
+    --secondary: 220 10% 92%;
+    --secondary-foreground: 220 20% 10%;
 
-    --muted: 220 14% 96%;
+    --muted: 220 10% 92%;
     --muted-foreground: 220 9% 46%;
 
-    --accent: 210 100% 50%;
+    --accent: 207 64% 33%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84% 60%;
@@ -36,74 +36,74 @@
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
 
-    --info: 199 89% 48%;
+    --info: 207 64% 33%;
     --info-foreground: 0 0% 100%;
 
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 210 100% 50%;
+    --border: 220 13% 87%;
+    --input: 220 13% 87%;
+    --ring: 207 78% 18%;
 
     --radius: 0.5rem;
 
-    --sidebar-background: 222 47% 11%;
-    --sidebar-foreground: 220 14% 96%;
-    --sidebar-primary: 210 100% 50%;
+    --sidebar-background: 210 55% 13%;
+    --sidebar-foreground: 220 10% 92%;
+    --sidebar-primary: 207 64% 33%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 222 47% 16%;
-    --sidebar-accent-foreground: 220 14% 96%;
-    --sidebar-border: 222 47% 16%;
-    --sidebar-ring: 210 100% 50%;
-    --sidebar-muted: 220 9% 46%;
+    --sidebar-accent: 210 55% 18%;
+    --sidebar-accent-foreground: 220 10% 92%;
+    --sidebar-border: 210 55% 18%;
+    --sidebar-ring: 207 64% 33%;
+    --sidebar-muted: 220 9% 60%;
 
-    --chart-1: 210 100% 50%;
+    --chart-1: 207 78% 18%;
     --chart-2: 142 76% 36%;
     --chart-3: 38 92% 50%;
-    --chart-4: 280 65% 60%;
+    --chart-4: 207 64% 33%;
     --chart-5: 0 84% 60%;
 
-    --gradient-primary: linear-gradient(135deg, hsl(210 100% 50%) 0%, hsl(199 89% 48%) 100%);
+    --gradient-primary: linear-gradient(135deg, hsl(210 55% 13%) 0%, hsl(207 78% 18%) 50%, hsl(207 64% 33%) 100%);
     --gradient-success: linear-gradient(135deg, hsl(142 76% 36%) 0%, hsl(142 76% 46%) 100%);
     --gradient-warning: linear-gradient(135deg, hsl(38 92% 50%) 0%, hsl(45 93% 47%) 100%);
     --gradient-danger: linear-gradient(135deg, hsl(0 84% 60%) 0%, hsl(0 84% 50%) 100%);
   }
 
   .dark {
-    --background: 222 47% 8%;
-    --foreground: 220 14% 96%;
+    --background: 210 55% 10%;
+    --foreground: 220 10% 92%;
 
-    --card: 222 47% 11%;
-    --card-foreground: 220 14% 96%;
+    --card: 210 55% 13%;
+    --card-foreground: 220 10% 92%;
 
-    --popover: 222 47% 11%;
-    --popover-foreground: 220 14% 96%;
+    --popover: 210 55% 13%;
+    --popover-foreground: 220 10% 92%;
 
-    --primary: 210 100% 50%;
+    --primary: 207 64% 33%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 222 47% 16%;
-    --secondary-foreground: 220 14% 96%;
+    --secondary: 210 55% 18%;
+    --secondary-foreground: 220 10% 92%;
 
-    --muted: 222 47% 16%;
+    --muted: 210 55% 18%;
     --muted-foreground: 220 9% 60%;
 
-    --accent: 210 100% 50%;
+    --accent: 207 64% 33%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 62% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 222 47% 16%;
-    --input: 222 47% 16%;
-    --ring: 210 100% 50%;
+    --border: 210 55% 18%;
+    --input: 210 55% 18%;
+    --ring: 207 64% 33%;
 
-    --sidebar-background: 222 47% 8%;
-    --sidebar-foreground: 220 14% 96%;
-    --sidebar-primary: 210 100% 50%;
+    --sidebar-background: 210 55% 10%;
+    --sidebar-foreground: 220 10% 92%;
+    --sidebar-primary: 207 64% 33%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 222 47% 14%;
-    --sidebar-accent-foreground: 220 14% 96%;
-    --sidebar-border: 222 47% 14%;
-    --sidebar-ring: 210 100% 50%;
+    --sidebar-accent: 210 55% 15%;
+    --sidebar-accent-foreground: 220 10% 92%;
+    --sidebar-border: 210 55% 15%;
+    --sidebar-ring: 207 64% 33%;
   }
 }
 

@@ -12,11 +12,11 @@ import {
   ChevronLeft,
   ChevronRight,
   LogOut,
-  BatteryCharging,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import logo from '@/assets/logo.jpeg';
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
@@ -35,7 +35,6 @@ export function DashboardSidebar() {
   const location = useLocation();
 
   const handleLogout = () => {
-    // Simulated logout - navigate to login page
     window.location.href = '/';
   };
 
@@ -48,9 +47,7 @@ export function DashboardSidebar() {
     >
       {/* Logo */}
       <div className="flex items-center gap-3 p-4 border-b border-sidebar-border">
-        <div className="flex items-center justify-center w-10 h-10 rounded-lg gradient-primary">
-          <BatteryCharging className="w-6 h-6 text-primary-foreground" />
-        </div>
+        <img src={logo} alt="EV Charge Logo" className="w-10 h-10 rounded-lg object-cover" />
         {!collapsed && (
           <div className="flex flex-col">
             <span className="font-bold text-sm">EV Charge</span>

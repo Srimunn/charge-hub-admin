@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BatteryCharging, Eye, EyeOff, Lock, Mail } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
+import logo from '@/assets/logo.jpeg';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -19,7 +20,6 @@ const Login = () => {
     e.preventDefault();
     setIsLoading(true);
 
-    // Simulate login
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
     if (email && password) {
@@ -40,15 +40,13 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-sidebar via-background to-background p-4">
+    <div className="min-h-screen flex items-center justify-center gradient-primary p-4">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="flex items-center justify-center w-16 h-16 rounded-2xl gradient-primary mb-4 shadow-lg">
-            <BatteryCharging className="w-8 h-8 text-primary-foreground" />
-          </div>
-          <h1 className="text-2xl font-bold text-foreground">EV Charge</h1>
-          <p className="text-muted-foreground">Autonomous Wireless Charging</p>
+          <img src={logo} alt="EV Charge Logo" className="w-16 h-16 rounded-2xl shadow-lg mb-4 object-cover" />
+          <h1 className="text-2xl font-bold text-primary-foreground">EV Charge</h1>
+          <p className="text-primary-foreground/70">Autonomous Wireless Charging</p>
         </div>
 
         <Card className="border-0 shadow-xl">
@@ -105,7 +103,7 @@ const Login = () => {
                 </div>
               </div>
 
-              <Button type="submit" className="w-full gradient-primary" disabled={isLoading}>
+              <Button type="submit" className="w-full gradient-primary text-primary-foreground" disabled={isLoading}>
                 {isLoading ? 'Signing in...' : 'Sign In'}
               </Button>
             </form>
@@ -116,7 +114,7 @@ const Login = () => {
           </CardContent>
         </Card>
 
-        <p className="mt-8 text-center text-xs text-muted-foreground">
+        <p className="mt-8 text-center text-xs text-primary-foreground/60">
           © 2024 EV Charge Operator System. All rights reserved.
         </p>
       </div>
