@@ -12,6 +12,7 @@ import {
   ChevronLeft,
   ChevronRight,
   LogOut,
+  Shield,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -23,7 +24,7 @@ const navItems = [
   { icon: Radio, label: 'Stations', path: '/stations' },
   { icon: Zap, label: 'Live Sessions', path: '/sessions' },
   { icon: AlertTriangle, label: 'Faults & Alerts', path: '/faults' },
-  { icon: AlertTriangle, label: 'Safety & Faults', path: '/safety' },
+  { icon: Shield, label: 'Safety & Faults', path: '/safety' },
   { icon: DollarSign, label: 'Pricing', path: '/pricing' },
   { icon: BarChart3, label: 'Reports', path: '/reports' },
   { icon: Users, label: 'Users & Fleets', path: '/users' },
@@ -41,39 +42,68 @@ export function DashboardSidebar() {
   return (
     <aside
       className={cn(
-        'flex flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-all duration-300 h-screen sticky top-0',
-        collapsed ? 'w-16' : 'w-64'
+        'relative flex flex-col border-r border-sidebar-border transition-all duration-300 h-screen sticky top-0',
+        collapsed ? 'w-[72px]' : 'w-[260px]'
       )}
+      style={{
+        background: 'linear-gradient(180deg, hsl(220 10% 12%) 0%, hsl(220 10% 16%) 100%)',
+      }}
     >
       {/* Logo */}
-      <div className="flex items-center gap-3 p-4 border-b border-sidebar-border">
-        <img src={logo} alt="EV Charge Logo" className="w-10 h-10 rounded-lg object-cover" />
+      <div className={cn(
+        'flex items-center gap-3 border-b border-sidebar-border',
+        collapsed ? 'px-3 py-5 justify-center' : 'px-5 py-5'
+      )}>
+        <img
+          src={logo}
+          alt="EV Charge Logo"
+          className="w-10 h-10 rounded-xl object-cover ring-2 ring-sidebar-accent shadow-lg"
+        />
         {!collapsed && (
           <div className="flex flex-col">
-            <span className="font-bold text-sm">EV Charge</span>
-            <span className="text-xs text-sidebar-muted">Operator System</span>
+            <span className="font-bold text-sm text-sidebar-foreground tracking-wide">EV Charge</span>
+            <span className="text-[11px] text-sidebar-muted font-medium">Operator System</span>
           </div>
         )}
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 py-4 overflow-y-auto">
-        <ul className="space-y-1 px-2">
+      <nav className="flex-1 py-5 overflow-y-auto">
+        <ul className="space-y-0.5 px-3">
           {navItems.map((item) => {
-            const isActive = location.pathname === item.path || 
+            const isActive = location.pathname === item.path ||
               (item.path === '/stations' && location.pathname.startsWith('/stations/'));
-            
+
             const linkContent = (
               <NavLink
                 to={item.path}
                 className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200',
-                  'hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-                  isActive && 'bg-sidebar-accent text-sidebar-primary font-medium'
+                  'flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group',
+                  'hover:bg-sidebar-accent/60',
+                  isActive
+                    ? 'bg-sidebar-accent text-sidebar-primary font-semibold shadow-sm'
+                    : 'text-sidebar-muted'
                 )}
               >
-                <item.icon className={cn('w-5 h-5 flex-shrink-0', isActive && 'text-sidebar-primary')} />
-                {!collapsed && <span className="text-sm">{item.label}</span>}
+                <div className={cn(
+                  'flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-200',
+                  isActive
+                    ? 'bg-sidebar-primary/15 text-sidebar-primary'
+                    : 'text-sidebar-muted group-hover:text-sidebar-foreground'
+                )}>
+                  <item.icon className="w-[18px] h-[18px]" />
+                </div>
+                {!collapsed && (
+                  <span className={cn(
+                    'text-[13px] transition-colors duration-200',
+                    isActive ? 'text-sidebar-accent-foreground' : 'group-hover:text-sidebar-foreground'
+                  )}>
+                    {item.label}
+                  </span>
+                )}
+                {isActive && !collapsed && (
+                  <div className="ml-auto w-1.5 h-1.5 rounded-full bg-sidebar-primary" />
+                )}
               </NavLink>
             );
 
@@ -82,7 +112,7 @@ export function DashboardSidebar() {
                 {collapsed ? (
                   <Tooltip delayDuration={0}>
                     <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
-                    <TooltipContent side="right" className="bg-card text-card-foreground">
+                    <TooltipContent side="right" className="bg-card text-card-foreground text-xs font-medium">
                       {item.label}
                     </TooltipContent>
                   </Tooltip>
@@ -96,7 +126,7 @@ export function DashboardSidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="border-t border-sidebar-border p-2">
+      <div className="border-t border-sidebar-border p-3">
         {collapsed ? (
           <Tooltip delayDuration={0}>
             <TooltipTrigger asChild>
@@ -104,9 +134,9 @@ export function DashboardSidebar() {
                 variant="ghost"
                 size="icon"
                 onClick={handleLogout}
-                className="w-full h-10 text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                className="w-full h-10 text-sidebar-muted hover:text-destructive hover:bg-destructive/10 rounded-xl"
               >
-                <LogOut className="w-5 h-5" />
+                <LogOut className="w-[18px] h-[18px]" />
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right" className="bg-card text-card-foreground">
@@ -117,9 +147,9 @@ export function DashboardSidebar() {
           <Button
             variant="ghost"
             onClick={handleLogout}
-            className="w-full justify-start gap-3 text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-accent"
+            className="w-full justify-start gap-3 text-sidebar-muted hover:text-destructive hover:bg-destructive/10 rounded-xl text-[13px]"
           >
-            <LogOut className="w-5 h-5" />
+            <LogOut className="w-[18px] h-[18px]" />
             <span>Logout</span>
           </Button>
         )}
@@ -130,12 +160,12 @@ export function DashboardSidebar() {
         variant="ghost"
         size="icon"
         onClick={() => setCollapsed(!collapsed)}
-        className="absolute -right-3 top-20 w-6 h-6 rounded-full bg-card border border-border shadow-md hover:bg-secondary"
+        className="absolute -right-3.5 top-20 w-7 h-7 rounded-full bg-card border border-border shadow-md hover:bg-secondary transition-all duration-200"
       >
         {collapsed ? (
-          <ChevronRight className="w-4 h-4" />
+          <ChevronRight className="w-3.5 h-3.5" />
         ) : (
-          <ChevronLeft className="w-4 h-4" />
+          <ChevronLeft className="w-3.5 h-3.5" />
         )}
       </Button>
     </aside>

@@ -12,7 +12,6 @@ export function KPICards() {
   const maintenanceStations = mockStations.filter(s => s.status === 'maintenance').length;
 
   const kpis = [
-    // Large cards
     {
       title: 'Total Revenue',
       value: `₹${revenueToday.toFixed(2)}`,
@@ -40,7 +39,6 @@ export function KPICards() {
       bgColor: 'bg-primary/10',
       size: 'large' as const,
     },
-    // Medium cards
     {
       title: 'CO₂ Saved',
       value: `${(totalEnergy * 0.4 / 1000).toFixed(1)} tons`,
@@ -68,7 +66,6 @@ export function KPICards() {
       bgColor: 'bg-destructive/10',
       size: 'medium' as const,
     },
-    // Small cards
     {
       title: 'Maintenance',
       value: maintenanceStations,
@@ -90,36 +87,36 @@ export function KPICards() {
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4 auto-rows-auto">
+    <div className="grid grid-cols-12 gap-5 auto-rows-auto">
       {kpis.map((kpi, index) => {
         const sizeClasses = {
-          large: 'col-span-2 row-span-1',
-          medium: 'col-span-2 sm:col-span-2 row-span-1',
-          small: 'col-span-1 sm:col-span-1 row-span-1',
+          large: 'col-span-12 sm:col-span-6 lg:col-span-4',
+          medium: 'col-span-6 sm:col-span-4 lg:col-span-4',
+          small: 'col-span-6 sm:col-span-3 lg:col-span-3',
         };
 
         return (
           <Card
             key={kpi.title}
-            className={`relative overflow-hidden ${sizeClasses[kpi.size]} transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 animate-fade-in-up`}
-            style={{ animationDelay: `${index * 0.08}s` }}
+            className={`premium-card relative overflow-hidden ${sizeClasses[kpi.size]} border-0 animate-fade-in-up`}
+            style={{ animationDelay: `${index * 0.06}s` }}
           >
-            <CardContent className={`${kpi.size === 'small' ? 'p-4' : 'p-6'}`}>
+            <CardContent className={kpi.size === 'small' ? 'p-4' : 'p-5'}>
               <div className="flex items-start justify-between">
-                <div>
-                  <p className={`font-medium text-muted-foreground ${kpi.size === 'small' ? 'text-xs' : 'text-sm'}`}>
+                <div className="flex-1">
+                  <p className={`font-medium text-muted-foreground tracking-wide uppercase ${kpi.size === 'small' ? 'text-[10px]' : 'text-[11px]'}`}>
                     {kpi.title}
                   </p>
-                  <h3 className={`font-bold mt-1 ${
+                  <h3 className={`font-bold mt-2 tracking-tight ${
                     kpi.size === 'large' ? 'text-3xl' : kpi.size === 'medium' ? 'text-2xl' : 'text-xl'
                   }`}>
                     {kpi.value}
                   </h3>
-                  <p className={`text-muted-foreground mt-1 ${kpi.size === 'small' ? 'text-[10px]' : 'text-xs'}`}>
+                  <p className={`text-muted-foreground mt-1.5 ${kpi.size === 'small' ? 'text-[10px]' : 'text-xs'}`}>
                     {kpi.change}
                   </p>
                 </div>
-                <div className={`rounded-xl ${kpi.bgColor} ${kpi.size === 'small' ? 'p-2' : 'p-3'}`}>
+                <div className={`rounded-2xl ${kpi.bgColor} ${kpi.size === 'small' ? 'p-2.5' : 'p-3.5'} backdrop-blur-sm`}>
                   <kpi.icon className={`${kpi.iconColor} ${kpi.size === 'small' ? 'w-4 h-4' : 'w-6 h-6'}`} />
                 </div>
               </div>
