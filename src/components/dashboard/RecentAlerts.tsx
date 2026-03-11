@@ -23,23 +23,26 @@ export function RecentAlerts() {
   };
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-lg font-semibold">Recent Alerts</CardTitle>
-        <Button variant="ghost" size="sm" asChild>
+    <Card className="premium-card border-0">
+      <CardHeader className="flex flex-row items-center justify-between pb-3">
+        <div>
+          <CardTitle className="text-base font-semibold">Recent Alerts</CardTitle>
+          <p className="text-xs text-muted-foreground mt-0.5">Latest system notifications</p>
+        </div>
+        <Button variant="ghost" size="sm" asChild className="text-xs text-primary hover:text-primary">
           <Link to="/safety" className="gap-1">
-            View All <ArrowRight className="w-4 h-4" />
+            View All <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </Button>
       </CardHeader>
       <CardContent>
-        <div className="space-y-4">
+        <div className="space-y-3">
           {recentAlerts.map((alert) => (
             <div
               key={alert.id}
-              className="flex items-start gap-3 p-3 rounded-lg bg-secondary/50"
+              className="flex items-start gap-3 p-3.5 rounded-xl bg-secondary/40 hover:bg-secondary/60 transition-colors duration-200"
             >
-              <div className={`p-2 rounded-lg ${
+              <div className={`p-2.5 rounded-xl ${
                 alert.severity === 'high' ? 'bg-destructive/10' : 
                 alert.severity === 'medium' ? 'bg-warning/10' : 'bg-info/10'
               }`}>
@@ -50,15 +53,15 @@ export function RecentAlerts() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="font-medium text-sm">{alert.stationId}</span>
-                  <Badge className={getSeverityColor(alert.severity)}>
+                  <span className="font-semibold text-sm">{alert.stationId}</span>
+                  <Badge className={`${getSeverityColor(alert.severity)} text-[10px] px-1.5 py-0`}>
                     {alert.severity}
                   </Badge>
                 </div>
                 <p className="text-sm text-muted-foreground truncate">
                   {alert.message}
                 </p>
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-[11px] text-muted-foreground mt-1">
                   {formatDistanceToNow(alert.timestamp, { addSuffix: true })}
                 </p>
               </div>
