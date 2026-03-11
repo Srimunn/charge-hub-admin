@@ -2,26 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 
-/* EV Charging Station Dashboard Design System — Navy Blue Theme */
+/* EV Charging Station Dashboard — Grey & Blue Theme */
 
 @layer base {
   :root {
-    --background: 210 15% 96%;
-    --foreground: 220 20% 10%;
+    --background: 220 14% 94%;
+    --foreground: 220 15% 12%;
 
     --card: 0 0% 100%;
-    --card-foreground: 220 20% 10%;
+    --card-foreground: 220 15% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 220 20% 10%;
+    --popover-foreground: 220 15% 12%;
 
     --primary: 207 78% 18%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 220 10% 92%;
-    --secondary-foreground: 220 20% 10%;
+    --secondary: 220 12% 90%;
+    --secondary-foreground: 220 15% 12%;
 
-    --muted: 220 10% 92%;
+    --muted: 220 12% 90%;
     --muted-foreground: 220 9% 46%;
 
     --accent: 207 64% 33%;
@@ -43,7 +43,7 @@
     --input: 220 13% 87%;
     --ring: 207 78% 18%;
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
 
     --sidebar-background: 210 55% 13%;
     --sidebar-foreground: 220 10% 92%;
@@ -131,4 +131,49 @@
   .gradient-danger {
     background: var(--gradient-danger);
   }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s ease-out both;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.5s ease-out both;
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.5s ease-out both;
 }
