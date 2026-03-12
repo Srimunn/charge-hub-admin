@@ -19,6 +19,7 @@ export function KPICards() {
       icon: DollarSign,
       iconColor: 'text-accent',
       bgColor: 'bg-accent/10',
+      ringColor: 'ring-accent/20',
       size: 'large' as const,
     },
     {
@@ -28,6 +29,7 @@ export function KPICards() {
       icon: Zap,
       iconColor: 'text-success',
       bgColor: 'bg-success/10',
+      ringColor: 'ring-success/20',
       size: 'large' as const,
     },
     {
@@ -37,6 +39,7 @@ export function KPICards() {
       icon: Plug,
       iconColor: 'text-primary',
       bgColor: 'bg-primary/10',
+      ringColor: 'ring-primary/20',
       size: 'large' as const,
     },
     {
@@ -46,6 +49,7 @@ export function KPICards() {
       icon: Leaf,
       iconColor: 'text-success',
       bgColor: 'bg-success/10',
+      ringColor: 'ring-success/20',
       size: 'medium' as const,
     },
     {
@@ -55,6 +59,7 @@ export function KPICards() {
       icon: Radio,
       iconColor: 'text-accent',
       bgColor: 'bg-accent/10',
+      ringColor: 'ring-accent/20',
       size: 'medium' as const,
     },
     {
@@ -64,6 +69,7 @@ export function KPICards() {
       icon: AlertTriangle,
       iconColor: 'text-destructive',
       bgColor: 'bg-destructive/10',
+      ringColor: 'ring-destructive/20',
       size: 'medium' as const,
     },
     {
@@ -73,6 +79,7 @@ export function KPICards() {
       icon: Wrench,
       iconColor: 'text-warning',
       bgColor: 'bg-warning/10',
+      ringColor: 'ring-warning/20',
       size: 'small' as const,
     },
     {
@@ -82,42 +89,56 @@ export function KPICards() {
       icon: ParkingCircle,
       iconColor: 'text-muted-foreground',
       bgColor: 'bg-muted',
+      ringColor: 'ring-muted/30',
       size: 'small' as const,
     },
   ];
 
   return (
-    <div className="grid grid-cols-12 gap-5 auto-rows-auto">
+    <div className="grid grid-cols-12 gap-4 lg:gap-5 auto-rows-auto">
       {kpis.map((kpi, index) => {
         const sizeClasses = {
-          large: 'col-span-12 sm:col-span-6 lg:col-span-4',
-          medium: 'col-span-6 sm:col-span-4 lg:col-span-4',
-          small: 'col-span-6 sm:col-span-3 lg:col-span-3',
+          large: 'col-span-12 sm:col-span-6 lg:col-span-4 row-span-1',
+          medium: 'col-span-6 lg:col-span-4',
+          small: 'col-span-6 lg:col-span-3',
         };
 
         return (
           <Card
             key={kpi.title}
-            className={`premium-card relative overflow-hidden ${sizeClasses[kpi.size]} border-0 animate-fade-in-up`}
+            className={`premium-card relative overflow-hidden ${sizeClasses[kpi.size]} border-0 animate-fade-in-up group`}
             style={{ animationDelay: `${index * 0.06}s` }}
           >
-            <CardContent className={kpi.size === 'small' ? 'p-4' : 'p-5'}>
-              <div className="flex items-start justify-between">
+            {/* Glow accent for large cards */}
+            {kpi.size === 'large' && (
+              <div className={`absolute top-0 right-0 w-32 h-32 ${kpi.bgColor} rounded-full blur-3xl opacity-40 -translate-y-1/2 translate-x-1/2 group-hover:opacity-60 transition-opacity duration-500`} />
+            )}
+            <CardContent className={kpi.size === 'small' ? 'p-4' : kpi.size === 'large' ? 'p-6' : 'p-5'}>
+              <div className="flex items-start justify-between relative z-10">
                 <div className="flex-1">
-                  <p className={`font-medium text-muted-foreground tracking-wide uppercase ${kpi.size === 'small' ? 'text-[10px]' : 'text-[11px]'}`}>
+                  <p className={`font-semibold text-muted-foreground tracking-wider uppercase ${kpi.size === 'small' ? 'text-[10px]' : 'text-[11px]'}`}>
                     {kpi.title}
                   </p>
                   <h3 className={`font-bold mt-2 tracking-tight ${
-                    kpi.size === 'large' ? 'text-3xl' : kpi.size === 'medium' ? 'text-2xl' : 'text-xl'
+                    kpi.size === 'large' ? 'text-3xl lg:text-4xl' : kpi.size === 'medium' ? 'text-2xl' : 'text-xl'
                   }`}>
                     {kpi.value}
                   </h3>
                   <p className={`text-muted-foreground mt-1.5 ${kpi.size === 'small' ? 'text-[10px]' : 'text-xs'}`}>
                     {kpi.change}
                   </p>
+                  {/* Mini progress bar for large cards */}
+                  {kpi.size === 'large' && (
+                    <div className="mt-4 h-1 w-full bg-secondary rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${kpi.iconColor.replace('text-', 'bg-')} animate-slide-in`}
+                        style={{ width: `${60 + index * 12}%`, animationDelay: `${0.5 + index * 0.1}s` }}
+                      />
+                    </div>
+                  )}
                 </div>
-                <div className={`rounded-2xl ${kpi.bgColor} ${kpi.size === 'small' ? 'p-2.5' : 'p-3.5'} backdrop-blur-sm`}>
-                  <kpi.icon className={`${kpi.iconColor} ${kpi.size === 'small' ? 'w-4 h-4' : 'w-6 h-6'}`} />
+                <div className={`rounded-2xl ${kpi.bgColor} ring-1 ${kpi.ringColor} ${kpi.size === 'small' ? 'p-2.5' : kpi.size === 'large' ? 'p-4' : 'p-3.5'} backdrop-blur-sm transition-transform duration-300 group-hover:scale-110`}>
+                  <kpi.icon className={`${kpi.iconColor} ${kpi.size === 'small' ? 'w-4 h-4' : kpi.size === 'large' ? 'w-7 h-7' : 'w-5 h-5'}`} />
                 </div>
               </div>
             </CardContent>
