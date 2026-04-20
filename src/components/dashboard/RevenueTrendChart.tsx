@@ -2,8 +2,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { monthlyRevenueData } from '@/data/mockData';
 import { TrendingUp } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { getDashboardKPIs } from '@/api';
 
 export function RevenueTrendChart() {
+  const { data } = useQuery({ queryKey: ['dashboardKPIs'], queryFn: getDashboardKPIs, refetchInterval: 5000 });
+  const kpiData: any = data || {};
+  const hasData = (kpiData.totalRevenue || 0) > 0;
+  const chartData = hasData ? monthlyRevenueData : monthlyRevenueData.map(d => ({ ...d, revenue: 0 }));
+
   return (
     <Card className="premium-card border-0 animate-fade-in-up" style={{ animationDelay: '0.45s' }}>
       <CardHeader className="pb-2">
@@ -12,15 +19,15 @@ export function RevenueTrendChart() {
             <CardTitle className="text-base font-semibold">Revenue Trend</CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">Monthly revenue growth</p>
           </div>
-          <div className="flex items-center gap-1.5 text-accent bg-accent/10 px-2.5 py-1 rounded-lg">
+          <div className={`flex items-center gap-1.5 ${hasData ? 'text-accent bg-accent/10' : 'text-muted-foreground bg-muted'} px-2.5 py-1 rounded-lg`}>
             <TrendingUp className="w-3.5 h-3.5" />
-            <span className="text-xs font-semibold">+18.4%</span>
+            <span className="text-xs font-semibold">{hasData ? '+18.4%' : '0.0%'}</span>
           </div>
         </div>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={280}>
-          <AreaChart data={monthlyRevenueData}>
+          <AreaChart data={chartData}>
             <defs>
               <linearGradient id="revTrendGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="hsl(var(--accent))" stopOpacity={0.25} />

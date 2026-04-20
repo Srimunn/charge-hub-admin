@@ -24,9 +24,9 @@ const Settings = () => {
   const { toast } = useToast();
 
   const [profile, setProfile] = useState({
-    name: 'Admin User',
-    email: 'admin@evcharge.com',
-    phone: '+1 (555) 123-4567',
+    name: localStorage.getItem('userName') || 'Admin User',
+    email: localStorage.getItem('userEmail') || 'admin@evcharge.com',
+    phone: localStorage.getItem('userMobile') || '+1 (555) 123-4567',
     role: 'System Administrator',
   });
 

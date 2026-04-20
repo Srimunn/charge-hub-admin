@@ -8,91 +8,44 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
-import {
-  AlertTriangle, Eye, CheckCircle, Wrench, ThermometerSun,
-  Target, Search, Wifi, Car, ShieldAlert,
+  AlertTriangle, CheckCircle, ShieldAlert
 } from 'lucide-react';
-import { mockFaults, mockStations, Fault, FaultType } from '@/data/mockData';
+import { getFaults, resolveFault } from '@/api';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 
-const faultTypeIcons: Record<FaultType, React.ReactNode> = {
-  misalignment: <Target className="w-4 h-4" />,
-  over_temperature: <ThermometerSun className="w-4 h-4" />,
-  foreign_object: <Search className="w-4 h-4" />,
-  communication_loss: <Wifi className="w-4 h-4" />,
-  collision: <Car className="w-4 h-4" />,
-};
-
-const faultTypeLabels: Record<FaultType, string> = {
-  misalignment: 'Misalignment',
-  over_temperature: 'Over-Temperature',
-  foreign_object: 'Foreign Object Detection',
-  communication_loss: 'Communication Loss',
-  collision: 'Collision',
-};
-
 const FaultsAlerts = () => {
-  const [faults, setFaults] = useState<Fault[]>(mockFaults);
-  const [stationFilter, setStationFilter] = useState<string>('all');
-  const [severityFilter, setSeverityFilter] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [faults, setFaults] = useState<any[]>([]);
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // Simulate new faults appearing
   useEffect(() => {
-    const interval = setInterval(() => {
-      // small chance of a new fault
-      if (Math.random() < 0.1) {
-        const types: FaultType[] = ['misalignment', 'over_temperature', 'foreign_object', 'communication_loss', 'collision'];
-        const severities = ['high', 'medium', 'low'] as const;
-        const stationIds = mockStations.map(s => s.id);
-        const newFault: Fault = {
-          id: `FLT-${String(Date.now()).slice(-5)}`,
-          stationId: stationIds[Math.floor(Math.random() * stationIds.length)],
-          sessionId: Math.random() > 0.5 ? `SES-${String(Math.floor(Math.random() * 100)).padStart(3, '0')}` : null,
-          type: types[Math.floor(Math.random() * types.length)],
-          severity: severities[Math.floor(Math.random() * severities.length)],
-          status: 'open',
-          timestamp: new Date(),
-          resolvedAt: null,
-          description: 'Auto-detected fault from monitoring system',
-          sensorValues: {},
-          lastKnownState: 'Unknown',
-          timeline: [{ time: new Date(), event: 'Fault auto-detected' }],
-        };
-        setFaults(prev => [newFault, ...prev]);
-      }
-    }, 10000);
+    fetchFaults();
+    const interval = setInterval(fetchFaults, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  const handleAcknowledge = (id: string) => {
-    setFaults(prev => prev.map(f => f.id === id ? { ...f, status: 'acknowledged' as const } : f));
-    toast({ title: 'Fault Acknowledged', description: `Fault ${id} has been acknowledged` });
+  const fetchFaults = async () => {
+    try {
+      const data = await getFaults();
+      setFaults(data);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  const handleResolve = (id: string) => {
-    setFaults(prev => prev.map(f => f.id === id ? { ...f, status: 'resolved' as const, resolvedAt: new Date() } : f));
-    toast({ title: 'Fault Resolved', description: `Fault ${id} marked as resolved` });
+  const handleResolve = async (id: string) => {
+    try {
+      await resolveFault(id);
+      toast({ title: 'Fault Resolved', description: `Fault safely marked as resolved in the system.` });
+      fetchFaults();
+    } catch (err: any) {
+      toast({ title: 'Error Resolving', description: err.message, variant: 'destructive' });
+    }
   };
 
-  const handleDispatch = (id: string) => {
-    toast({ title: 'Technician Dispatched', description: `Maintenance team dispatched for fault ${id}` });
-  };
-
-  const filtered = faults.filter(f => {
-    if (stationFilter !== 'all' && f.stationId !== stationFilter) return false;
-    if (severityFilter !== 'all' && f.severity !== severityFilter) return false;
-    if (statusFilter !== 'all' && f.status !== statusFilter) return false;
-    return true;
-  });
-
-  const openCount = faults.filter(f => f.status === 'open').length;
-  const highCount = faults.filter(f => f.severity === 'high' && f.status !== 'resolved').length;
+  const openCount = faults.filter(f => f.status === 'active').length;
+  const highCount = faults.filter(f => f.severity === 'high' && f.status === 'active').length;
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -106,19 +59,19 @@ const FaultsAlerts = () => {
                 <ShieldAlert className="w-6 h-6 text-destructive" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Open Faults</p>
+                <p className="text-sm text-muted-foreground">Active Faults</p>
                 <p className="text-2xl font-bold">{openCount}</p>
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className="p-3 rounded-xl bg-warning/10">
-                <AlertTriangle className="w-6 h-6 text-warning" />
+            <CardContent className="flex items-center gap-4 p-4 bg-red-50 dark:bg-red-950/20">
+              <div className="p-3 rounded-xl bg-destructive">
+                <AlertTriangle className="w-6 h-6 text-white" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Critical (High)</p>
-                <p className="text-2xl font-bold">{highCount}</p>
+                <p className="text-sm text-destructive font-semibold">Critical (High)</p>
+                <p className="text-2xl font-bold text-destructive animate-pulse">{highCount}</p>
               </div>
             </CardContent>
           </Card>
@@ -128,43 +81,12 @@ const FaultsAlerts = () => {
                 <CheckCircle className="w-6 h-6 text-success" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Resolved (Total)</p>
+                <p className="text-sm text-muted-foreground">Resolved</p>
                 <p className="text-2xl font-bold">{faults.filter(f => f.status === 'resolved').length}</p>
               </div>
             </CardContent>
           </Card>
         </div>
-
-        {/* Filters */}
-        <Card>
-          <CardContent className="flex flex-wrap items-center gap-4 p-4">
-            <Select value={stationFilter} onValueChange={setStationFilter}>
-              <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Stations" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Stations</SelectItem>
-                {mockStations.map(s => <SelectItem key={s.id} value={s.id}>{s.id} — {s.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={severityFilter} onValueChange={setSeverityFilter}>
-              <SelectTrigger className="w-[150px]"><SelectValue placeholder="All Severities" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Severities</SelectItem>
-                <SelectItem value="high">High</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="low">Low</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[150px]"><SelectValue placeholder="All Statuses" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="open">Open</SelectItem>
-                <SelectItem value="acknowledged">Acknowledged</SelectItem>
-                <SelectItem value="resolved">Resolved</SelectItem>
-              </SelectContent>
-            </Select>
-          </CardContent>
-        </Card>
 
         {/* Table */}
         <Card>
@@ -172,45 +94,40 @@ const FaultsAlerts = () => {
             <CardTitle>All Faults</CardTitle>
           </CardHeader>
           <CardContent>
+            {faults.length === 0 ? <p className="text-muted-foreground p-4 text-center">No faults detected.</p> : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Station</TableHead>
-                  <TableHead className="hidden md:table-cell">Session</TableHead>
-                  <TableHead>Fault Type</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Message</TableHead>
                   <TableHead>Severity</TableHead>
-                  <TableHead className="hidden sm:table-cell">Time</TableHead>
+                  <TableHead>Time Detected</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map(fault => (
-                  <TableRow key={fault.id}>
-                    <TableCell className="font-medium">{fault.stationId}</TableCell>
-                    <TableCell className="hidden md:table-cell">{fault.sessionId || '—'}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {faultTypeIcons[fault.type]}
-                        <span className="hidden sm:inline">{faultTypeLabels[fault.type]}</span>
-                      </div>
-                    </TableCell>
+                {faults.map(fault => (
+                  <TableRow key={fault._id} className={fault.severity === 'high' && fault.status === 'active' ? "bg-destructive/10" : ""}>
+                    <TableCell className="font-medium">{fault.stationId?.name || "Unknown"}</TableCell>
+                    <TableCell className="capitalize">{fault.type}</TableCell>
+                    <TableCell>{fault.message}</TableCell>
                     <TableCell>
                       <Badge className={
-                        fault.severity === 'high' ? 'bg-destructive text-destructive-foreground' :
+                        fault.severity === 'high' ? 'bg-destructive text-destructive-foreground animate-pulse' :
                         fault.severity === 'medium' ? 'bg-warning text-warning-foreground' :
-                        'bg-success text-success-foreground'
+                        'bg-info text-info-foreground'
                       }>
                         {fault.severity}
                       </Badge>
                     </TableCell>
-                    <TableCell className="hidden sm:table-cell text-muted-foreground text-xs">
-                      {format(fault.timestamp, 'MMM dd, HH:mm')}
+                    <TableCell className="text-muted-foreground text-xs">
+                      {format(new Date(fault.createdAt), 'MMM dd, HH:mm')}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className={
-                        fault.status === 'open' ? 'border-destructive text-destructive' :
-                        fault.status === 'acknowledged' ? 'border-warning text-warning' :
+                        fault.status === 'active' ? 'border-destructive text-destructive' :
                         'border-success text-success'
                       }>
                         {fault.status}
@@ -218,22 +135,9 @@ const FaultsAlerts = () => {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
-                        <Button variant="outline" size="sm" onClick={() => navigate(`/faults/${fault.id}`)}>
-                          <Eye className="w-4 h-4" />
-                        </Button>
-                        {fault.status === 'open' && (
-                          <Button variant="outline" size="sm" onClick={() => handleAcknowledge(fault.id)}>
-                            <CheckCircle className="w-4 h-4" />
-                          </Button>
-                        )}
                         {fault.status !== 'resolved' && (
-                          <Button variant="outline" size="sm" onClick={() => handleResolve(fault.id)}>
-                            <CheckCircle className="w-4 h-4 text-success" />
-                          </Button>
-                        )}
-                        {fault.status !== 'resolved' && (
-                          <Button variant="outline" size="sm" onClick={() => handleDispatch(fault.id)}>
-                            <Wrench className="w-4 h-4" />
+                          <Button variant="outline" size="sm" onClick={() => handleResolve(fault._id)}>
+                            <CheckCircle className="w-4 h-4 text-success mr-2" /> Resolve
                           </Button>
                         )}
                       </div>
@@ -242,6 +146,7 @@ const FaultsAlerts = () => {
                 ))}
               </TableBody>
             </Table>
+            )}
           </CardContent>
         </Card>
       </div>

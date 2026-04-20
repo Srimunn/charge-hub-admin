@@ -13,7 +13,15 @@ const faultTrendData = [
   { week: 'W8', faults: 3 },
 ];
 
+import { useQuery } from '@tanstack/react-query';
+import { getDashboardKPIs } from '@/api';
+
 export function FaultTrendChart() {
+  const { data } = useQuery({ queryKey: ['dashboardKPIs'], queryFn: getDashboardKPIs, refetchInterval: 5000 });
+  const kpiData: any = data || {};
+  const hasFaults = (kpiData.activeFaults || 0) > 0;
+  const chartData = hasFaults ? faultTrendData : faultTrendData.map(d => ({ ...d, faults: 0 }));
+
   return (
     <Card className="premium-card border-0 animate-fade-in-up" style={{ animationDelay: '0.7s' }}>
       <CardHeader className="pb-2">
@@ -22,15 +30,15 @@ export function FaultTrendChart() {
             <CardTitle className="text-base font-semibold">Fault Trend</CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">Weekly fault occurrences</p>
           </div>
-          <div className="flex items-center gap-1.5 text-destructive bg-destructive/10 px-2.5 py-1 rounded-lg">
+          <div className={`flex items-center gap-1.5 ${hasFaults ? 'text-destructive bg-destructive/10' : 'text-success bg-success/10'} px-2.5 py-1 rounded-lg`}>
             <AlertTriangle className="w-3.5 h-3.5" />
-            <span className="text-xs font-semibold">↓ 57%</span>
+            <span className="text-xs font-semibold">{hasFaults ? '⚠️ Active' : 'All Clear'}</span>
           </div>
         </div>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={220}>
-          <LineChart data={faultTrendData}>
+          <LineChart data={chartData}>
             <defs>
               <linearGradient id="faultGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="hsl(var(--destructive))" stopOpacity={0.2} />

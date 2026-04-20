@@ -2,25 +2,32 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { stationUtilizationData } from '@/data/mockData';
 import { Radio } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { getDashboardKPIs } from '@/api';
 
 export function StationUtilizationChart() {
+  const { data } = useQuery({ queryKey: ['dashboardKPIs'], queryFn: getDashboardKPIs, refetchInterval: 5000 });
+  const kpiData: any = data || {};
+  const hasData = (kpiData.activeSessions || 0) > 0;
+  const chartData = hasData ? stationUtilizationData : stationUtilizationData.map(d => ({ ...d, utilization: 0 }));
+
   return (
-    <Card className="premium-card border-0 animate-fade-in-up" style={{ animationDelay: '0.6s' }}>
+    <Card className="premium-card border-y-0 border-r-0 border-l-4 border-primary animate-fade-in-up" style={{ animationDelay: '0.6s' }}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-base font-semibold">Station Utilization</CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">Current usage by station</p>
           </div>
-          <div className="flex items-center gap-1.5 text-primary bg-primary/10 px-2.5 py-1 rounded-lg">
-            <Radio className="w-3.5 h-3.5" />
-            <span className="text-xs font-semibold">Live</span>
+          <div className={`flex items-center gap-1.5 ${hasData ? 'text-primary bg-primary/10' : 'text-muted-foreground bg-muted'} px-2.5 py-1 rounded-lg`}>
+            <Radio className={`w-3.5 h-3.5 ${hasData ? 'animate-pulse' : ''}`} />
+            <span className="text-xs font-semibold">{hasData ? 'Live' : 'Offline'}</span>
           </div>
         </div>
       </CardHeader>
       <CardContent>
-        <ResponsiveContainer width="100%" height={280}>
-          <BarChart data={stationUtilizationData} barCategoryGap="20%">
+        <ResponsiveContainer width="100%" height={450}>
+          <BarChart data={chartData} barCategoryGap="20%">
             <defs>
               <linearGradient id="utilizationHigh" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={1} />
@@ -58,7 +65,7 @@ export function StationUtilizationChart() {
               formatter={(value: number) => [`${value}%`, 'Utilization']}
             />
             <Bar dataKey="utilization" radius={[8, 8, 0, 0]} animationDuration={1400} animationEasing="ease-in-out">
-              {stationUtilizationData.map((entry, index) => (
+              {chartData.map((entry, index) => (
                 <Cell
                   key={`cell-${index}`}
                   fill={entry.utilization > 70 ? 'url(#utilizationHigh)' : 'url(#utilizationLow)'}

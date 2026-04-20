@@ -28,12 +28,15 @@ const Reports = () => {
     }, 1500);
   };
 
-  const totalFaultsMonth = mockFaults.length;
-  const resolvedFaults = mockFaults.filter(f => f.resolvedAt);
-  const avgResolutionMs = resolvedFaults.length > 0
-    ? resolvedFaults.reduce((sum, f) => sum + (f.resolvedAt!.getTime() - f.timestamp.getTime()), 0) / resolvedFaults.length
-    : 0;
-  const avgResolutionHours = Math.round(avgResolutionMs / 3600000 * 10) / 10;
+  const totalFaultsMonth = 0;
+  const avgResolutionHours = 0;
+
+  const emptyDailyEnergy = dailyEnergyData.map(d => ({ ...d, energy: 0 }));
+  const emptyMonthlyRevenue = monthlyRevenueData.map(d => ({ ...d, revenue: 0 }));
+  const emptyStationUtil = stationUtilizationData.map(d => ({ ...d, utilization: 0 }));
+  const emptyFaultsByStation = faultsByStationData.map(d => ({ ...d, faults: 0 }));
+  const emptyFaultsByType = faultsByTypeData.map(d => ({ ...d, count: 0 }));
+  const emptyDowntime = downtimeByFaultData.map(d => ({ ...d, downtime: 0 }));
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -76,15 +79,15 @@ const Reports = () => {
           <Card>
             <CardContent className="p-4 text-center">
               <p className="text-sm text-muted-foreground">Total Energy (Month)</p>
-              <p className="text-2xl font-bold mt-1">156,000 kWh</p>
-              <Badge variant="outline" className="mt-2 text-success border-success">+12.5%</Badge>
+              <p className="text-2xl font-bold mt-1">0 kWh</p>
+              <Badge variant="outline" className="mt-2 text-muted border-muted">0%</Badge>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
               <p className="text-sm text-muted-foreground">Total Revenue (Month)</p>
-              <p className="text-2xl font-bold mt-1">₹46,800</p>
-              <Badge variant="outline" className="mt-2 text-success border-success">+8.3%</Badge>
+              <p className="text-2xl font-bold mt-1">₹0</p>
+              <Badge variant="outline" className="mt-2 text-muted border-muted">0%</Badge>
             </CardContent>
           </Card>
         </div>
@@ -95,7 +98,7 @@ const Reports = () => {
             <CardHeader><CardTitle>Faults by Station</CardTitle></CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={faultsByStationData}>
+                <BarChart data={emptyFaultsByStation}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="station" stroke="hsl(var(--muted-foreground))" fontSize={10} />
                   <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} allowDecimals={false} />
@@ -109,7 +112,7 @@ const Reports = () => {
             <CardHeader><CardTitle>Faults by Type</CardTitle></CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={faultsByTypeData}>
+                <BarChart data={emptyFaultsByType}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="type" stroke="hsl(var(--muted-foreground))" fontSize={10} />
                   <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} allowDecimals={false} />
@@ -123,7 +126,7 @@ const Reports = () => {
             <CardHeader><CardTitle>Downtime (hours/month)</CardTitle></CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={250}>
-                <LineChart data={downtimeByFaultData}>
+                <LineChart data={emptyDowntime}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" fontSize={12} />
                   <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} />
@@ -141,7 +144,7 @@ const Reports = () => {
             <CardHeader><CardTitle>Daily Energy Consumption</CardTitle></CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={dailyEnergyData}>
+                <BarChart data={emptyDailyEnergy}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" fontSize={12} />
                   <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickFormatter={(v) => `${v} kWh`} />
@@ -155,7 +158,7 @@ const Reports = () => {
             <CardHeader><CardTitle>Monthly Revenue</CardTitle></CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={monthlyRevenueData}>
+                <LineChart data={emptyMonthlyRevenue}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" fontSize={12} />
                   <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickFormatter={(v) => `₹${v/1000}k`} />
@@ -172,7 +175,7 @@ const Reports = () => {
           <CardHeader><CardTitle>Station Utilization</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={stationUtilizationData} layout="vertical">
+              <BarChart data={emptyStationUtil} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis type="number" stroke="hsl(var(--muted-foreground))" fontSize={12} tickFormatter={(v) => `${v}%`} />
                 <YAxis type="category" dataKey="station" stroke="hsl(var(--muted-foreground))" fontSize={12} width={80} />
@@ -188,15 +191,15 @@ const Reports = () => {
           <Card>
             <CardContent className="p-4 text-center">
               <p className="text-sm text-muted-foreground">Avg Utilization</p>
-              <p className="text-2xl font-bold mt-1">67.4%</p>
-              <Badge variant="outline" className="mt-2 text-warning border-warning">+2.1%</Badge>
+              <p className="text-2xl font-bold mt-1">0%</p>
+              <Badge variant="outline" className="mt-2 text-muted border-muted">0%</Badge>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
               <p className="text-sm text-muted-foreground">Sessions (Month)</p>
-              <p className="text-2xl font-bold mt-1">3,240</p>
-              <Badge variant="outline" className="mt-2 text-success border-success">+15.7%</Badge>
+              <p className="text-2xl font-bold mt-1">0</p>
+              <Badge variant="outline" className="mt-2 text-muted border-muted">0%</Badge>
             </CardContent>
           </Card>
         </div>

@@ -46,7 +46,7 @@ export function DashboardSidebar() {
         collapsed ? 'w-[72px]' : 'w-[260px]'
       )}
       style={{
-        background: 'linear-gradient(180deg, hsl(220 10% 12%) 0%, hsl(220 10% 16%) 100%)',
+        backgroundColor: '#DADBDF',
       }}
     >
       {/* Logo */}
@@ -54,15 +54,17 @@ export function DashboardSidebar() {
         'flex items-center gap-3 border-b border-sidebar-border',
         collapsed ? 'px-3 py-5 justify-center' : 'px-5 py-5'
       )}>
-        <img
-          src={logo}
-          alt="EV Charge Logo"
-          className="w-10 h-10 rounded-xl object-cover ring-2 ring-sidebar-accent shadow-lg"
-        />
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden shrink-0">
+          <img
+            src={logo}
+            alt="EV Charge Logo"
+            className="w-full h-full object-contain mix-blend-multiply brightness-110 contrast-150 saturate-200 transform scale-150 drop-shadow-[0_4px_4px_rgba(0,0,0,0.5)] drop-shadow-[0_0px_8px_rgba(0,100,255,0.4)]"
+          />
+        </div>
         {!collapsed && (
           <div className="flex flex-col">
-            <span className="font-bold text-sm text-sidebar-foreground tracking-wide">EV Charge</span>
-            <span className="text-[11px] text-sidebar-muted font-medium">Operator System</span>
+            <span className="font-bold text-sm text-black tracking-wide">EV Charge</span>
+            <span className="text-[11px] text-gray-500 font-medium">Operator System</span>
           </div>
         )}
       </div>
@@ -78,31 +80,26 @@ export function DashboardSidebar() {
               <NavLink
                 to={item.path}
                 className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group',
-                  'hover:bg-sidebar-accent/60',
-                  isActive
-                    ? 'bg-sidebar-accent text-sidebar-primary font-semibold shadow-sm'
-                    : 'text-sidebar-muted'
+                  'flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group text-black font-medium',
+                  'hover:bg-black/5',
+                  isActive && 'bg-black/10 shadow-sm'
                 )}
               >
                 <div className={cn(
                   'flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-200',
                   isActive
-                    ? 'bg-sidebar-primary/15 text-sidebar-primary'
-                    : 'text-sidebar-muted group-hover:text-sidebar-foreground'
+                    ? 'text-black'
+                    : 'text-gray-600 group-hover:text-black'
                 )}>
                   <item.icon className="w-[18px] h-[18px]" />
                 </div>
                 {!collapsed && (
-                  <span className={cn(
-                    'text-[13px] transition-colors duration-200',
-                    isActive ? 'text-sidebar-accent-foreground' : 'group-hover:text-sidebar-foreground'
-                  )}>
+                  <span className="text-[13px] transition-colors duration-200">
                     {item.label}
                   </span>
                 )}
                 {isActive && !collapsed && (
-                  <div className="ml-auto w-1.5 h-1.5 rounded-full bg-sidebar-primary" />
+                  <div className="ml-auto w-1.5 h-1.5 rounded-full bg-black" />
                 )}
               </NavLink>
             );
@@ -126,7 +123,7 @@ export function DashboardSidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="border-t border-sidebar-border p-3">
+      <div className="border-t border-black/10 p-3">
         {collapsed ? (
           <Tooltip delayDuration={0}>
             <TooltipTrigger asChild>
@@ -134,7 +131,7 @@ export function DashboardSidebar() {
                 variant="ghost"
                 size="icon"
                 onClick={handleLogout}
-                className="w-full h-10 text-sidebar-muted hover:text-destructive hover:bg-destructive/10 rounded-xl"
+                className="w-full h-10 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl"
               >
                 <LogOut className="w-[18px] h-[18px]" />
               </Button>
@@ -147,7 +144,7 @@ export function DashboardSidebar() {
           <Button
             variant="ghost"
             onClick={handleLogout}
-            className="w-full justify-start gap-3 text-sidebar-muted hover:text-destructive hover:bg-destructive/10 rounded-xl text-[13px]"
+            className="w-full justify-start gap-3 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-xl text-[13px]"
           >
             <LogOut className="w-[18px] h-[18px]" />
             <span>Logout</span>
@@ -160,13 +157,9 @@ export function DashboardSidebar() {
         variant="ghost"
         size="icon"
         onClick={() => setCollapsed(!collapsed)}
-        className="absolute -right-3.5 top-20 w-7 h-7 rounded-full bg-card border border-border shadow-md hover:bg-secondary transition-all duration-200"
+        className="absolute -right-4 top-1/2 -translate-y-1/2 z-50 w-8 h-8 rounded-full bg-[#DADBDF] border border-black/10 shadow-md shadow-black/10 hover:bg-black/5 hover:scale-105 transition-all duration-200 flex items-center justify-center p-0"
       >
-        {collapsed ? (
-          <ChevronRight className="w-3.5 h-3.5" />
-        ) : (
-          <ChevronLeft className="w-3.5 h-3.5" />
-        )}
+        <ChevronLeft className={cn("w-4 h-4 text-black transition-transform duration-300", collapsed && "rotate-180")} />
       </Button>
     </aside>
   );

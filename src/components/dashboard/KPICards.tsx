@@ -1,26 +1,57 @@
-import { Radio, Zap, AlertTriangle, DollarSign, Leaf, Plug, Wrench, ParkingCircle } from 'lucide-react';
+import { Radio, Zap, AlertTriangle, IndianRupee, Leaf, Plug, Wrench, ParkingCircle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { mockStations, mockChargingSessions, mockAlerts } from '@/data/mockData';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { getDashboardKPIs } from '@/api';
+import { useQuery } from '@tanstack/react-query';
 
 export function KPICards() {
-  const activeSessions = mockChargingSessions.filter(s => s.status === 'active').length;
-  const faultAlerts = mockAlerts.filter(a => !a.acknowledged).length;
-  const revenueToday = mockChargingSessions.reduce((sum, s) => sum + s.revenue, 0);
-  const totalEnergy = mockStations.reduce((sum, s) => sum + s.totalEnergy, 0);
-  const onlineStations = mockStations.filter(s => s.status === 'online').length;
-  const idleStations = mockStations.filter(s => s.status === 'online').length - activeSessions;
-  const maintenanceStations = mockStations.filter(s => s.status === 'maintenance').length;
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['dashboardKPIs'],
+    queryFn: getDashboardKPIs,
+    refetchInterval: 5000, // Real-time polling
+  });
+
+  if (isLoading) {
+    return <div className="p-4 text-center w-full">Loading Dashboard Metrics...</div>;
+  }
+
+  if (isError) {
+    return <div className="p-4 text-center text-destructive w-full">Error loading metrics. Please ensure backend is running and DB is connected.</div>;
+  }
+
+  const {
+    totalRevenue = 0,
+    totalEnergyCost = 0,
+    totalConvenienceFee = 0,
+    totalTax = 0,
+    activeSessions = 0,
+    totalEnergy = 0,
+    co2Saved = 0,
+    onlineStations = 0,
+    totalStations = 0,
+    activeFaults = 0,
+    maintenanceStations = 0,
+    idleStations = 0
+  } = (data as any) || {};
 
   const kpis = [
     {
       title: 'Total Revenue',
-      value: `₹${revenueToday.toFixed(2)}`,
+      value: `₹${totalRevenue.toFixed(2)}`,
       change: '+12.5% vs yesterday',
-      icon: DollarSign,
+      icon: IndianRupee,
       iconColor: 'text-accent',
       bgColor: 'bg-accent/10',
       ringColor: 'ring-accent/20',
       size: 'large' as const,
+      tooltip: (
+        <div className="space-y-1 text-xs">
+          <div className="flex justify-between gap-4"><span>Energy Cost:</span> <span className="font-medium">₹{totalEnergyCost.toFixed(2)}</span></div>
+          <div className="flex justify-between gap-4"><span>Conv. Fee:</span> <span className="font-medium">₹{totalConvenienceFee.toFixed(2)}</span></div>
+          <div className="flex justify-between gap-4"><span>Tax/Surcharges:</span> <span className="font-medium">₹{totalTax.toFixed(2)}</span></div>
+          <div className="border-t border-border/50 pt-1 mt-1 flex justify-between gap-4 font-bold text-primary"><span>Total:</span> <span>₹{totalRevenue.toFixed(2)}</span></div>
+        </div>
+      )
     },
     {
       title: 'Active Sessions',
@@ -44,7 +75,7 @@ export function KPICards() {
     },
     {
       title: 'CO₂ Saved',
-      value: `${(totalEnergy * 0.4 / 1000).toFixed(1)} tons`,
+      value: `${co2Saved.toFixed(1)} tons`,
       change: 'Environmental impact',
       icon: Leaf,
       iconColor: 'text-success',
@@ -54,7 +85,7 @@ export function KPICards() {
     },
     {
       title: 'Stations Online',
-      value: `${onlineStations}/${mockStations.length}`,
+      value: `${onlineStations}/${totalStations}`,
       change: 'Network status',
       icon: Radio,
       iconColor: 'text-accent',
@@ -64,12 +95,12 @@ export function KPICards() {
     },
     {
       title: 'Fault Alerts',
-      value: faultAlerts,
+      value: activeFaults,
       change: 'Require attention',
       icon: AlertTriangle,
-      iconColor: 'text-destructive',
-      bgColor: 'bg-destructive/10',
-      ringColor: 'ring-destructive/20',
+      iconColor: activeFaults > 0 ? 'text-white' : 'text-destructive',
+      bgColor: activeFaults > 0 ? 'bg-destructive animate-pulse' : 'bg-destructive/10',
+      ringColor: activeFaults > 0 ? 'ring-destructive' : 'ring-destructive/20',
       size: 'medium' as const,
     },
     {
@@ -95,55 +126,62 @@ export function KPICards() {
   ];
 
   return (
-    <div className="grid grid-cols-12 gap-4 lg:gap-5 auto-rows-auto">
+    <div className="grid grid-cols-2 gap-4">
       {kpis.map((kpi, index) => {
-        const sizeClasses = {
-          large: 'col-span-12 sm:col-span-6 lg:col-span-4 row-span-1',
-          medium: 'col-span-6 lg:col-span-4',
-          small: 'col-span-6 lg:col-span-3',
-        };
+        const spanClass = kpi.size === 'small' ? 'col-span-1' : 'col-span-2';
 
-        return (
+        const CardUI = (
           <Card
             key={kpi.title}
-            className={`premium-card relative overflow-hidden ${sizeClasses[kpi.size]} border-0 animate-fade-in-up group`}
+            className={`premium-card relative overflow-hidden w-full border-y-0 border-r-0 border-l-4 ${kpi.iconColor.replace('text-', 'border-')} animate-fade-in-up group ${spanClass}`}
             style={{ animationDelay: `${index * 0.06}s` }}
           >
             {/* Glow accent for large cards */}
             {kpi.size === 'large' && (
               <div className={`absolute top-0 right-0 w-32 h-32 ${kpi.bgColor} rounded-full blur-3xl opacity-40 -translate-y-1/2 translate-x-1/2 group-hover:opacity-60 transition-opacity duration-500`} />
             )}
-            <CardContent className={kpi.size === 'small' ? 'p-4' : kpi.size === 'large' ? 'p-6' : 'p-5'}>
+            <CardContent className="p-5">
               <div className="flex items-start justify-between relative z-10">
                 <div className="flex-1">
-                  <p className={`font-semibold text-muted-foreground tracking-wider uppercase ${kpi.size === 'small' ? 'text-[10px]' : 'text-[11px]'}`}>
-                    {kpi.title}
+                  <p className="font-semibold text-muted-foreground tracking-wider uppercase text-[11px] flex items-center gap-1.5">
+                    {kpi.title} {kpi.tooltip && <span className="px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[9px] cursor-pointer">Hover for breakdown</span>}
                   </p>
                   <h3 className={`font-bold mt-2 tracking-tight ${
-                    kpi.size === 'large' ? 'text-3xl lg:text-4xl' : kpi.size === 'medium' ? 'text-2xl' : 'text-xl'
+                    kpi.size === 'large' ? 'text-3xl' : 'text-2xl'
                   }`}>
                     {kpi.value}
                   </h3>
-                  <p className={`text-muted-foreground mt-1.5 ${kpi.size === 'small' ? 'text-[10px]' : 'text-xs'}`}>
+                  <p className="text-muted-foreground mt-1.5 text-xs">
                     {kpi.change}
                   </p>
                   {/* Mini progress bar for large cards */}
                   {kpi.size === 'large' && (
-                    <div className="mt-4 h-1 w-full bg-secondary rounded-full overflow-hidden">
+                    <div className={`mt-4 h-2 w-full bg-secondary rounded-full overflow-hidden ${kpi.title === 'Active Sessions' && kpi.value > 0 ? 'ring-1 ring-success/20' : ''}`}>
                       <div
-                        className={`h-full rounded-full ${kpi.iconColor.replace('text-', 'bg-')} animate-slide-in`}
-                        style={{ width: `${60 + index * 12}%`, animationDelay: `${0.5 + index * 0.1}s` }}
+                        className={`h-full rounded-full transition-all duration-1000 ${kpi.iconColor.replace('text-', 'bg-')} ${kpi.title === 'Active Sessions' && kpi.value > 0 ? 'animate-pulse' : 'animate-slide-in'}`}
+                        style={{ width: `${Math.min(100, 40 + (typeof kpi.value === 'number' ? kpi.value * 10 : 20))}%`, animationDelay: `${0.2}s` }}
                       />
                     </div>
                   )}
                 </div>
-                <div className={`rounded-2xl ${kpi.bgColor} ring-1 ${kpi.ringColor} ${kpi.size === 'small' ? 'p-2.5' : kpi.size === 'large' ? 'p-4' : 'p-3.5'} backdrop-blur-sm transition-transform duration-300 group-hover:scale-110`}>
-                  <kpi.icon className={`${kpi.iconColor} ${kpi.size === 'small' ? 'w-4 h-4' : kpi.size === 'large' ? 'w-7 h-7' : 'w-5 h-5'}`} />
+                <div className={`rounded-2xl ${kpi.bgColor} ring-1 ${kpi.ringColor} p-3.5 backdrop-blur-sm transition-transform duration-300 group-hover:scale-110`}>
+                  <kpi.icon className={`${kpi.iconColor} w-5 h-5`} />
                 </div>
               </div>
             </CardContent>
           </Card>
         );
+
+        return kpi.tooltip ? (
+          <Tooltip key={kpi.title}>
+            <TooltipTrigger asChild>
+              {CardUI}
+            </TooltipTrigger>
+            <TooltipContent className="bg-card border shadow-xl p-3" side="right">
+              {kpi.tooltip}
+            </TooltipContent>
+          </Tooltip>
+        ) : CardUI;
       })}
     </div>
   );

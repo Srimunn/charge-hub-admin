@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
-import { DollarSign, Save, Clock, Users, Zap } from 'lucide-react';
+import { IndianRupee, Save, Clock, Users, Zap } from 'lucide-react';
 import { mockTariffs, Tariff } from '@/data/mockData';
 import { useToast } from '@/hooks/use-toast';
 
@@ -53,7 +53,7 @@ const Pricing = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <DollarSign className="w-5 h-5" />
+                <IndianRupee className="w-5 h-5" />
                 Base Pricing
               </CardTitle>
               <CardDescription>Set your standard charging rates</CardDescription>
@@ -204,7 +204,7 @@ const Pricing = () => {
           <Card>
             <CardContent className="flex items-center gap-4 p-4">
               <div className="p-3 rounded-xl bg-primary/10">
-                <DollarSign className="w-6 h-6 text-primary" />
+                <IndianRupee className="w-6 h-6 text-primary" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Avg Revenue/Session</p>

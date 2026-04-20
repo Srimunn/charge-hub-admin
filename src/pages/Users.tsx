@@ -29,7 +29,7 @@ import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 
 const UsersPage = () => {
-  const [users, setUsers] = useState<User[]>(mockUsers);
+  const [users, setUsers] = useState<User[]>([]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [usageLimit, setUsageLimit] = useState('');
   const { toast } = useToast();

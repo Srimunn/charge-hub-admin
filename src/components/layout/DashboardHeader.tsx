@@ -1,4 +1,5 @@
 import { Bell, Search, User } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -17,6 +18,15 @@ interface DashboardHeaderProps {
 }
 
 export function DashboardHeader({ title, subtitle }: DashboardHeaderProps) {
+  const navigate = useNavigate();
+  const userName = localStorage.getItem('userName') || 'Admin';
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('userId');
+    navigate('/');
+  };
+
   return (
     <header className="flex items-center justify-between px-6 lg:px-8 py-5 bg-card/80 backdrop-blur-md border-b border-border/60 sticky top-0 z-30">
       <div>
@@ -36,46 +46,7 @@ export function DashboardHeader({ title, subtitle }: DashboardHeaderProps) {
           />
         </div>
 
-        {/* Notifications */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative rounded-xl hover:bg-secondary/60">
-              <Bell className="w-5 h-5 text-muted-foreground" />
-              <Badge className="absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center p-0 text-[10px] bg-destructive border-2 border-card">
-                3
-              </Badge>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-80 rounded-xl">
-            <DropdownMenuLabel>Notifications</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="flex flex-col items-start gap-1 py-3">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-destructive" />
-                <span className="font-medium text-sm">High Temperature Alert</span>
-              </div>
-              <span className="text-xs text-muted-foreground">STN-004 - 2 minutes ago</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="flex flex-col items-start gap-1 py-3">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-warning" />
-                <span className="font-medium text-sm">Misalignment Detected</span>
-              </div>
-              <span className="text-xs text-muted-foreground">STN-002 - 15 minutes ago</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="flex flex-col items-start gap-1 py-3">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-destructive" />
-                <span className="font-medium text-sm">Station Offline</span>
-              </div>
-              <span className="text-xs text-muted-foreground">STN-006 - 2 hours ago</span>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="justify-center text-primary font-medium">
-              View all notifications
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {/* Empty space where notifications used to be */}
 
         {/* Profile */}
         <DropdownMenu>
@@ -84,16 +55,15 @@ export function DashboardHeader({ title, subtitle }: DashboardHeaderProps) {
               <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
                 <User className="w-4 h-4 text-primary" />
               </div>
-              <span className="hidden md:inline font-medium text-sm">Admin</span>
+              <span className="hidden md:inline font-medium text-sm">{userName}</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="rounded-xl">
             <DropdownMenuLabel>My Account</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>Profile</DropdownMenuItem>
-            <DropdownMenuItem>Settings</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => navigate('/settings')}>Profile</DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive">Logout</DropdownMenuItem>
+            <DropdownMenuItem onSelect={handleLogout} className="text-destructive font-semibold">Logout</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

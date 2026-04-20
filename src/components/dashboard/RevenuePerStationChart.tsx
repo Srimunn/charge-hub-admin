@@ -1,9 +1,16 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { revenuePerStationData } from '@/data/mockData';
-import { DollarSign } from 'lucide-react';
+import { IndianRupee } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { getDashboardKPIs } from '@/api';
 
 export function RevenuePerStationChart() {
+  const { data } = useQuery({ queryKey: ['dashboardKPIs'], queryFn: getDashboardKPIs, refetchInterval: 5000 });
+  const kpiData: any = data || {};
+  const hasData = (kpiData.totalRevenue || 0) > 0;
+  const chartData = hasData ? revenuePerStationData : revenuePerStationData.map(d => ({ ...d, revenue: 0 }));
+
   return (
     <Card className="premium-card border-0 animate-fade-in-up" style={{ animationDelay: '0.4s' }}>
       <CardHeader className="pb-2">
@@ -12,15 +19,15 @@ export function RevenuePerStationChart() {
             <CardTitle className="text-base font-semibold">Revenue per Station</CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">Top performing stations</p>
           </div>
-          <div className="flex items-center gap-1.5 text-accent bg-accent/10 px-2.5 py-1 rounded-lg">
-            <DollarSign className="w-3.5 h-3.5" />
+          <div className={`flex items-center gap-1.5 ${hasData ? 'text-accent bg-accent/10' : 'text-muted-foreground bg-muted'} px-2.5 py-1 rounded-lg`}>
+            <IndianRupee className="w-3.5 h-3.5" />
             <span className="text-xs font-semibold">₹ Revenue</span>
           </div>
         </div>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={280}>
-          <BarChart data={revenuePerStationData} barCategoryGap="25%">
+          <BarChart data={chartData} barCategoryGap="25%">
             <defs>
               <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="hsl(var(--accent))" stopOpacity={1} />

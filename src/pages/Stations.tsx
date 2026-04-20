@@ -1,74 +1,95 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { DashboardHeader } from '@/components/layout/DashboardHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { MoreHorizontal, Power, PowerOff, Wrench, Eye, MapPin } from 'lucide-react';
-import { mockStations, Station } from '@/data/mockData';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { MoreHorizontal, Power, PowerOff, Wrench, Eye, MapPin, Plus, Zap } from 'lucide-react';
+
 import { useToast } from '@/hooks/use-toast';
 import { Progress } from '@/components/ui/progress';
+import { getStations, createStation } from '@/api';
+import { AddStationModal } from '@/components/dashboard/AddStationModal';
+
+export interface StationData {
+  _id: string;
+  id?: string;
+  name: string;
+  location: string;
+  status: string;
+  powerOutput?: number;
+  ports?: number;
+  health?: number;
+  image?: string;
+  basePricePerKwh?: number;
+  dynamicPricing?: {startTime: string, endTime: string, pricePerKwh: number}[];
+  convenienceFee?: number;
+  tax?: number;
+}
+
 
 const Stations = () => {
-  const [stations, setStations] = useState<Station[]>(mockStations);
+  const [stations, setStations] = useState<StationData[]>([]);
   const { toast } = useToast();
+  const navigate = useNavigate();
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'online':
-        return 'bg-success text-success-foreground';
-      case 'offline':
-        return 'bg-destructive text-destructive-foreground';
-      case 'maintenance':
-        return 'bg-warning text-warning-foreground';
-      default:
-        return 'bg-muted text-muted-foreground';
+  const token = localStorage.getItem("token");
+
+  useEffect(() => {
+    if (!token) {
+      navigate('/');
+      return;
+    }
+    fetchStations();
+  }, [token]);
+
+  const fetchStations = async () => {
+    try {
+      const data = await getStations();
+      setStations(data);
+    } catch (err) {
+      console.error(err);
+      toast({ title: "Error", description: "Could not load stations", variant: "destructive" });
     }
   };
 
-  const getHealthColor = (health: number) => {
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'online': return 'bg-success text-success-foreground';
+      case 'offline': return 'bg-destructive text-destructive-foreground';
+      case 'maintenance': return 'bg-warning text-warning-foreground';
+      default: return 'bg-muted text-muted-foreground';
+    }
+  };
+
+  const getHealthColor = (health: number = 100) => {
     if (health >= 90) return 'bg-success';
     if (health >= 70) return 'bg-warning';
     return 'bg-destructive';
   };
 
-  const handleAction = (stationId: string, action: string) => {
-    setStations(prev =>
-      prev.map(station => {
-        if (station.id === stationId) {
-          switch (action) {
-            case 'enable':
-              return { ...station, status: 'online' as const };
-            case 'disable':
-              return { ...station, status: 'offline' as const };
-            case 'maintenance':
-              return { ...station, status: 'maintenance' as const };
-            default:
-              return station;
-          }
-        }
-        return station;
-      })
-    );
+  const getCurrentRate = (station: StationData) => {
+    let price = station.basePricePerKwh || 15;
+    let isPeak = false;
 
-    toast({
-      title: 'Station Updated',
-      description: `Station ${stationId} has been set to ${action}`,
-    });
+    if (station.dynamicPricing && station.dynamicPricing.length > 0) {
+      const now = new Date();
+      const currentHour = now.getHours();
+      const currentMinute = now.getMinutes();
+      const currentTimeStr = `${currentHour.toString().padStart(2, '0')}:${currentMinute.toString().padStart(2, '0')}`;
+
+      for (let rule of station.dynamicPricing) {
+        if (rule.startTime && rule.endTime && currentTimeStr >= rule.startTime && currentTimeStr <= rule.endTime) {
+          price = rule.pricePerKwh;
+          isPeak = true;
+          break;
+        }
+      }
+    }
+
+    return { price, isPeak };
   };
 
   const onlineCount = stations.filter(s => s.status === 'online').length;
@@ -83,55 +104,48 @@ const Stations = () => {
       />
       
       <div className="flex-1 p-6 space-y-6">
-        {/* Summary Cards */}
+        <div className="flex justify-end">
+          <AddStationModal 
+            onStationAdded={fetchStations}
+            customTrigger={<Button><Plus className="w-4 h-4 mr-2"/> Add Station</Button>}
+          />
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card>
             <CardContent className="flex items-center gap-4 p-4">
-              <div className="p-3 rounded-xl bg-success/10">
-                <Power className="w-6 h-6 text-success" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Online</p>
-                <p className="text-2xl font-bold">{onlineCount}</p>
-              </div>
+              <div className="p-3 rounded-xl bg-success/10"><Power className="w-6 h-6 text-success" /></div>
+              <div><p className="text-sm text-muted-foreground">Online</p><p className="text-2xl font-bold">{onlineCount}</p></div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="flex items-center gap-4 p-4">
-              <div className="p-3 rounded-xl bg-destructive/10">
-                <PowerOff className="w-6 h-6 text-destructive" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Offline</p>
-                <p className="text-2xl font-bold">{offlineCount}</p>
-              </div>
+              <div className="p-3 rounded-xl bg-destructive/10"><PowerOff className="w-6 h-6 text-destructive" /></div>
+              <div><p className="text-sm text-muted-foreground">Offline</p><p className="text-2xl font-bold">{offlineCount}</p></div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="flex items-center gap-4 p-4">
-              <div className="p-3 rounded-xl bg-warning/10">
-                <Wrench className="w-6 h-6 text-warning" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Maintenance</p>
-                <p className="text-2xl font-bold">{maintenanceCount}</p>
-              </div>
+              <div className="p-3 rounded-xl bg-warning/10"><Wrench className="w-6 h-6 text-warning" /></div>
+              <div><p className="text-sm text-muted-foreground">Maintenance</p><p className="text-2xl font-bold">{maintenanceCount}</p></div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Stations Table */}
         <Card>
-          <CardHeader>
-            <CardTitle>All Stations</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle>My Stations</CardTitle></CardHeader>
           <CardContent>
+            {stations.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground">No stations found. Click "Add Station" to create one.</div>
+            ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Station ID</TableHead>
-                  <TableHead>Name</TableHead>
+                  <TableHead className="w-16 hidden sm:table-cell">Image</TableHead>
+                  <TableHead>Station Name</TableHead>
                   <TableHead className="hidden md:table-cell">Location</TableHead>
+                  <TableHead>Power (kW)</TableHead>
+                  <TableHead>Current Rate</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="hidden sm:table-cell">Health</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -139,61 +153,61 @@ const Stations = () => {
               </TableHeader>
               <TableBody>
                 {stations.map((station) => (
-                  <TableRow key={station.id}>
-                    <TableCell className="font-medium">{station.id}</TableCell>
-                    <TableCell>{station.name}</TableCell>
+                  <TableRow key={station._id}>
+                    {/* Image Thumbnail */}
+                    <TableCell className="hidden sm:table-cell">
+                      {station.image ? (
+                        <img
+                          src={station.image}
+                          alt={station.name}
+                          className="w-12 h-12 rounded-lg object-cover border border-border shadow-sm"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center border border-border">
+                          <Zap className="w-5 h-5 text-primary/60" />
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="font-medium">{station.name}</TableCell>
                     <TableCell className="hidden md:table-cell">
                       <div className="flex items-center gap-1 text-muted-foreground">
                         <MapPin className="w-4 h-4" />
                         <span className="truncate max-w-[200px]">{station.location}</span>
                       </div>
                     </TableCell>
+                    <TableCell>{station.powerOutput || 0} kW</TableCell>
                     <TableCell>
-                      <Badge className={getStatusColor(station.status)}>
-                        {station.status}
-                      </Badge>
+                      {(() => {
+                        const { price, isPeak } = getCurrentRate(station);
+                        return (
+                          <div className="flex flex-col gap-1 w-max">
+                            <span className="font-semibold text-sm">₹{price}/kWh</span>
+                            <Badge variant={isPeak ? "destructive" : "secondary"} className={`w-fit text-[10px] px-1.5 py-0.5 h-auto leading-none ${isPeak ? '' : 'bg-primary/10 text-primary border-primary/20'}`}>
+                              {isPeak ? "Peak Hours" : "Standard Rate"}
+                            </Badge>
+                          </div>
+                        );
+                      })()}
+                    </TableCell>
+                    <TableCell>
+                      <Badge className={getStatusColor(station.status)}>{station.status}</Badge>
                     </TableCell>
                     <TableCell className="hidden sm:table-cell">
                       <div className="flex items-center gap-2 w-24">
-                        <Progress 
-                          value={station.health} 
-                          className={`h-2 ${getHealthColor(station.health)}`}
-                        />
-                        <span className="text-xs text-muted-foreground w-8">
-                          {station.health}%
-                        </span>
+                        <Progress value={station.health || 100} className={`h-2 ${getHealthColor(station.health)}`} />
+                        <span className="text-xs text-muted-foreground w-8">{station.health || 100}%</span>
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal className="w-4 h-4" />
-                          </Button>
+                          <Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem asChild>
-                            <Link to={`/stations/${station.id}`} className="flex items-center gap-2">
+                            <Link to={`/stations/${station._id}`} className="flex items-center gap-2">
                               <Eye className="w-4 h-4" /> View Details
                             </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            onClick={() => handleAction(station.id, 'enable')}
-                            disabled={station.status === 'online'}
-                          >
-                            <Power className="w-4 h-4 mr-2" /> Enable
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            onClick={() => handleAction(station.id, 'disable')}
-                            disabled={station.status === 'offline'}
-                          >
-                            <PowerOff className="w-4 h-4 mr-2" /> Disable
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            onClick={() => handleAction(station.id, 'maintenance')}
-                            disabled={station.status === 'maintenance'}
-                          >
-                            <Wrench className="w-4 h-4 mr-2" /> Set Maintenance
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -202,6 +216,8 @@ const Stations = () => {
                 ))}
               </TableBody>
             </Table>
+            )}
+
           </CardContent>
         </Card>
       </div>

@@ -8,100 +8,85 @@ import { Progress } from '@/components/ui/progress';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { StopCircle, RefreshCw, Zap, Clock, DollarSign, Battery, AlertTriangle, Eye } from 'lucide-react';
-import { mockChargingSessions, ChargingSession } from '@/data/mockData';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { StopCircle, PlayCircle, Zap, Clock, IndianRupee, Battery, AlertTriangle } from 'lucide-react';
+import { getSessions, startSession, stopSession, getStations } from '@/api';
 import { useToast } from '@/hooks/use-toast';
-
-type SessionDisplayStatus = 'charging' | 'paused' | 'faulted' | 'completed';
-
-interface DisplaySession extends ChargingSession {
-  displayStatus: SessionDisplayStatus;
-}
+import { formatDistanceToNow } from 'date-fns';
 
 const Sessions = () => {
-  const [sessions, setSessions] = useState<DisplaySession[]>(
-    mockChargingSessions.map((s, i) => ({
-      ...s,
-      displayStatus: s.status === 'active'
-        ? (i === 2 ? 'faulted' : i === 4 ? 'paused' : 'charging')
-        : 'completed',
-    }))
-  );
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  // Simulate real-time updates
+  // Poll for live session data every 5 seconds
   useEffect(() => {
-    const interval = setInterval(() => {
-      setSessions(prev =>
-        prev.map(session => {
-          if (session.displayStatus === 'charging') {
-            const newSOC = Math.min(session.batterySOC + Math.random() * 2, 100);
-            const newDuration = session.duration + 1;
-            const newRevenue = session.revenue + (session.chargingPower * 0.005);
-            // small chance of becoming faulted
-            const faulted = Math.random() < 0.005;
-            return {
-              ...session,
-              batterySOC: Math.round(newSOC),
-              duration: newDuration,
-              revenue: Math.round(newRevenue * 100) / 100,
-              displayStatus: faulted ? 'faulted' as const : 'charging' as const,
-            };
-          }
-          return session;
-        })
-      );
-    }, 3000);
+    fetchSessions(); // initial hit
+    const interval = setInterval(fetchSessions, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  const handleStopSession = (sessionId: string) => {
-    setSessions(prev =>
-      prev.map(s =>
-        s.id === sessionId ? { ...s, status: 'completed' as const, displayStatus: 'completed' as const } : s
-      )
-    );
-    toast({ title: 'Session Stopped', description: `Charging session ${sessionId} has been stopped` });
-  };
-
-  const handleResetStation = (stationId: string) => {
-    toast({ title: 'Station Reset', description: `Station ${stationId} is being reset` });
-  };
-
-  const activeSessions = sessions.filter(s => s.displayStatus === 'charging' || s.displayStatus === 'paused' || s.displayStatus === 'faulted');
-  const totalPower = activeSessions.reduce((sum, s) => sum + s.chargingPower, 0);
-  const totalRevenue = sessions.reduce((sum, s) => sum + s.revenue, 0);
-
-  const formatDuration = (minutes: number) => {
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-  };
-
-  const getStatusBadge = (status: SessionDisplayStatus) => {
-    switch (status) {
-      case 'charging':
-        return <Badge className="bg-success text-success-foreground">Charging</Badge>;
-      case 'paused':
-        return <Badge className="bg-warning text-warning-foreground">Paused</Badge>;
-      case 'faulted':
-        return (
-          <Badge className="bg-destructive text-destructive-foreground animate-pulse-glow">
-            <AlertTriangle className="w-3 h-3 mr-1" /> Faulted
-          </Badge>
-        );
-      case 'completed':
-        return <Badge className="bg-info text-info-foreground">Completed</Badge>;
+  const fetchSessions = async () => {
+    try {
+      const data = await getSessions();
+      setSessions(data);
+    } catch (err) {
+      console.error("Failed to fetch sessions", err);
     }
+  };
+
+  const handleStartSession = async () => {
+    try {
+      setIsLoading(true);
+      const stations = await getStations();
+      if (!stations || stations.length === 0) {
+        toast({ title: "Error", description: "No stations available to start a session", variant: "destructive" });
+        return;
+      }
+      const randomStation = stations[Math.floor(Math.random() * stations.length)];
+      await startSession(randomStation._id);
+      toast({ title: "Session Started", description: `Charging started at ${randomStation.name}` });
+      fetchSessions();
+    } catch (err: any) {
+      toast({ title: "Failed to Start", description: err.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleStopSession = async (sessionId: string) => {
+    try {
+      await stopSession(sessionId);
+      toast({ title: 'Session Stopped', description: `Charging session has been stopped successfully.` });
+      fetchSessions();
+    } catch (err: any) {
+      toast({ title: "Failed to Stop", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const activeSessions = sessions.filter(s => s.status === 'active');
+  const totalPower = activeSessions.reduce((sum, s) => sum + (s.energyUsed || 0), 0);
+  const totalCost = sessions.reduce((sum, s) => sum + (s.cost || 0), 0);
+
+  const getStatusBadge = (status: string) => {
+    if (status === 'active') return <Badge className="bg-success text-success-foreground">Charging</Badge>;
+    return <Badge className="bg-info text-info-foreground">Completed</Badge>;
   };
 
   return (
     <div className="flex flex-col min-h-screen">
       <DashboardHeader title="Live Charging Sessions" subtitle="Real-time monitoring of active charging" />
       <div className="flex-1 p-6 space-y-6">
+        
+        <div className="flex justify-end">
+           <Button onClick={handleStartSession} disabled={isLoading} className="gap-2">
+              <PlayCircle className="w-4 h-4" /> Simulate Start Session
+           </Button>
+        </div>
+
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card>
             <CardContent className="flex items-center gap-4 p-4">
               <div className="p-3 rounded-xl bg-success/10"><Zap className="w-6 h-6 text-success" /></div>
@@ -115,28 +100,17 @@ const Sessions = () => {
             <CardContent className="flex items-center gap-4 p-4">
               <div className="p-3 rounded-xl bg-primary/10"><Battery className="w-6 h-6 text-primary" /></div>
               <div>
-                <p className="text-sm text-muted-foreground">Total Power</p>
-                <p className="text-2xl font-bold">{totalPower.toFixed(1)} kW</p>
+                <p className="text-sm text-muted-foreground">Total Energy</p>
+                <p className="text-2xl font-bold">{totalPower.toFixed(2)} kWh</p>
               </div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="flex items-center gap-4 p-4">
-              <div className="p-3 rounded-xl bg-warning/10"><Clock className="w-6 h-6 text-warning" /></div>
+              <div className="p-3 rounded-xl bg-info/10"><IndianRupee className="w-6 h-6 text-info" /></div>
               <div>
-                <p className="text-sm text-muted-foreground">Avg Duration</p>
-                <p className="text-2xl font-bold">
-                  {formatDuration(Math.round(activeSessions.reduce((sum, s) => sum + s.duration, 0) / activeSessions.length || 0))}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className="p-3 rounded-xl bg-info/10"><DollarSign className="w-6 h-6 text-info" /></div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total Revenue</p>
-                <p className="text-2xl font-bold">₹{totalRevenue.toFixed(2)}</p>
+                <p className="text-sm text-muted-foreground">Total Cost Generated</p>
+                <p className="text-2xl font-bold">₹{totalCost.toFixed(2)}</p>
               </div>
             </CardContent>
           </Card>
@@ -154,45 +128,49 @@ const Sessions = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Vehicle ID</TableHead>
-                  <TableHead className="hidden md:table-cell">User ID</TableHead>
+                  <TableHead>Session ID</TableHead>
                   <TableHead>Station</TableHead>
-                  <TableHead>Battery SOC</TableHead>
-                  <TableHead className="hidden sm:table-cell">Power</TableHead>
-                  <TableHead className="hidden sm:table-cell">Duration</TableHead>
-                  <TableHead>Revenue</TableHead>
+                  <TableHead>Duration</TableHead>
+                  <TableHead>Energy (Real-time)</TableHead>
+                  <TableHead>Cost</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {sessions.map((session) => (
-                  <TableRow key={session.id} className={session.displayStatus === 'faulted' ? 'bg-destructive/5' : ''}>
-                    <TableCell className="font-medium">{session.vehicleId}</TableCell>
-                    <TableCell className="hidden md:table-cell">{session.userId}</TableCell>
-                    <TableCell>{session.stationId}</TableCell>
+                  <TableRow key={session._id}>
+                    <TableCell className="font-medium text-xs">{session._id}</TableCell>
+                    <TableCell>{session.stationId?.name || "Unknown"}</TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-2 w-24">
-                        <Progress value={session.batterySOC} className="h-2" />
-                        <span className="text-xs text-muted-foreground w-8">{session.batterySOC}%</span>
+                      {formatDistanceToNow(new Date(session.startTime))} {session.status === 'active' ? "so far" : "total"}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2 w-32">
+                        <Progress value={Math.min((session.energyUsed / 50) * 100, 100)} className="h-2 [&>div]:bg-success transition-all duration-1000 ease-in-out" />
+                        <span className="text-xs text-muted-foreground w-12">{session.energyUsed.toFixed(2)} kWh</span>
                       </div>
                     </TableCell>
-                    <TableCell className="hidden sm:table-cell">{session.chargingPower} kW</TableCell>
-                    <TableCell className="hidden sm:table-cell">{formatDuration(session.duration)}</TableCell>
-                    <TableCell>₹{session.revenue.toFixed(2)}</TableCell>
-                    <TableCell>{getStatusBadge(session.displayStatus)}</TableCell>
+                    <TableCell>
+                      <Tooltip>
+                        <TooltipTrigger className="cursor-help underline decoration-dashed underline-offset-4 decoration-muted-foreground">
+                          ₹{session.cost?.toFixed(2) || '0.00'}
+                        </TooltipTrigger>
+                        <TooltipContent className="bg-card border shadow-xl p-3" side="top">
+                          <div className="space-y-1 text-xs">
+                            <div className="flex justify-between gap-4"><span>Energy Cost:</span> <span className="font-medium">₹{((session.energyUsed || 0) * (session.appliedPrice || 15)).toFixed(2)}</span></div>
+                            <div className="flex justify-between gap-4"><span>Conv. Fee:</span> <span className="font-medium">₹{(session.convenienceFee || 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between gap-4"><span>Tax/Surcharges:</span> <span className="font-medium">₹{(session.tax || 0).toFixed(2)}</span></div>
+                            <div className="border-t border-border/50 pt-1 mt-1 flex justify-between gap-4 font-bold text-primary"><span>Total:</span> <span>₹{session.cost?.toFixed(2) || '0.00'}</span></div>
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell>{getStatusBadge(session.status)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
-                        {session.displayStatus === 'faulted' && (
-                          <Button variant="outline" size="sm" onClick={() => navigate('/faults')} className="text-destructive border-destructive">
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                        )}
-                        <Button variant="outline" size="sm" onClick={() => handleStopSession(session.id)} disabled={session.displayStatus === 'completed'}>
-                          <StopCircle className="w-4 h-4" />
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => handleResetStation(session.stationId)}>
-                          <RefreshCw className="w-4 h-4" />
+                        <Button variant="outline" size="sm" onClick={() => handleStopSession(session._id)} disabled={session.status === 'completed'}>
+                          <StopCircle className="w-4 h-4 text-destructive" />
                         </Button>
                       </div>
                     </TableCell>
