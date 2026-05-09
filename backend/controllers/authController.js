@@ -1,5 +1,30 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const USERS_FILE = path.join(__dirname, '../data/users.json');
+
+const readMockUsers = () => {
+    try {
+        if (!fs.existsSync(USERS_FILE)) return [];
+        return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+    } catch (err) {
+        console.error("Error reading mock users:", err);
+        return [];
+    }
+};
+
+const writeMockUsers = (users) => {
+    try {
+        fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    } catch (err) {
+        console.error("Error writing mock users:", err);
+    }
+};
 
 const generateToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_SECRET || 'fallback_secret', { expiresIn: '7d' });
@@ -16,20 +41,44 @@ export const registerUser = async (req, res) => {
             return res.status(400).json({ error: "Please add all fields" });
         }
 
-        const userExists = await User.findOne({ $or: [{ email }, { mobile }] });
-        if (userExists) {
-            return res.status(400).json({ error: "User already exists with this email or mobile" });
+        if (password.length !== 6 || !/^\d+$/.test(password)) {
+            return res.status(400).json({ error: "PIN must be exactly 6 digits" });
         }
 
-        const user = new User({ name, email, password, mobile });
-        await user.save();
+        // Check if DB is connected
+        const isDbConnected = User.db.readyState === 1;
 
-        // Simulate sending OTP (Mocked as 123456)
-        const otp = "123456";
-        otpStore.set(email, { otp, type: "register", userId: user._id });
-        console.log(`📱 MOCK SMS -> To ${mobile} [Register]: Your OTP is ${otp}`);
+        if (isDbConnected) {
+            const userExists = await User.findOne({ $or: [{ email }, { mobile }] });
+            if (userExists) {
+                return res.status(400).json({ error: "User already exists with this email or mobile" });
+            }
 
-        res.status(200).json({ message: "Registration initiated. OTP sent to mobile", email });
+            const user = new User({ name, email, password, mobile });
+            await user.save();
+
+            return res.status(201).json({ 
+                message: "Registration successful. You can now login.",
+                user: { id: user._id, name: user.name, email: user.email, mobile: user.mobile }
+            });
+        } else {
+            // Mock mode registration with file persistence
+            const mockUsers = readMockUsers();
+            const userExists = mockUsers.find(u => u.email === email || u.mobile === mobile);
+            if (userExists) {
+                return res.status(400).json({ error: "User already exists in mock mode" });
+            }
+
+            const newUser = { _id: Date.now().toString(), name, email, password, mobile };
+            mockUsers.push(newUser);
+            writeMockUsers(mockUsers);
+            console.log(`✅ User registered (MOCK PERSISTENT): ${email}`);
+
+            return res.status(201).json({ 
+                message: "Registration successful. You can now login.",
+                user: { id: newUser._id, name: newUser.name, email: newUser.email, mobile: newUser.mobile }
+            });
+        }
     } catch (err) {
         console.error("Register Error:", err);
         res.status(500).json({ error: err.message });
@@ -39,21 +88,28 @@ export const registerUser = async (req, res) => {
 export const loginUser = async (req, res) => {
     try {
         const { email, password } = req.body;
-        const user = await User.findOne({ email });
+        const isDbConnected = User.db.readyState === 1;
 
-        if (user && (await user.comparePassword(password))) {
-            // Direct login bypass for PIN
-            console.log(`✅ User login authorized for ${email}`);
-            res.status(200).json({
-                _id: user._id,
-                name: user.name,
-                email: user.email,
-                mobile: user.mobile,
-                token: generateToken(user._id),
-            });
+        if (isDbConnected) {
+            const user = await User.findOne({ email });
+            if (user && (await user.comparePassword(password))) {
+                return res.status(200).json({
+                    _id: user._id, name: user.name, email: user.email, mobile: user.mobile,
+                    token: generateToken(user._id),
+                });
+            }
         } else {
-            res.status(400).json({ error: "Invalid credentials" });
+            // Mock mode login with file persistence
+            const mockUsers = readMockUsers();
+            const user = mockUsers.find(u => u.email === email && u.password === password);
+            if (user) {
+                return res.status(200).json({
+                    _id: user._id, name: user.name, email: user.email, mobile: user.mobile,
+                    token: generateToken(user._id),
+                });
+            }
         }
+        res.status(400).json({ error: "Invalid credentials" });
     } catch (err) {
         console.error("Login Error:", err);
         res.status(500).json({ error: err.message });

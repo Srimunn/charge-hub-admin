@@ -1,5 +1,5 @@
 import express from "express";
-import { getStations, setStation } from "../controllers/stationController.js";
+import { getStations, setStation, getDebugStations } from "../controllers/stationController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import upload from "../middleware/uploadMiddleware.js";
 
@@ -9,5 +9,8 @@ const router = express.Router();
 router.route("/")
   .get(protect, getStations)
   .post(protect, upload.single('image'), setStation);
+
+// Debug: view mock store
+router.get("/debug", getDebugStations);
 
 export default router;

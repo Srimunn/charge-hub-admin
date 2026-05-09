@@ -13,7 +13,7 @@ import { getStations } from '@/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { MapPin } from 'lucide-react';
+import { MapPin, Zap } from 'lucide-react';
 
 const Dashboard = () => {
   const [stations, setStations] = useState<any[]>([]);
@@ -83,6 +83,7 @@ const Dashboard = () => {
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          <TableHead className="w-16"></TableHead>
                           <TableHead>Station Name</TableHead>
                           <TableHead>Location</TableHead>
                           <TableHead>Status</TableHead>
@@ -92,6 +93,21 @@ const Dashboard = () => {
                       <TableBody>
                         {stations.slice(0, 5).map((station) => (
                           <TableRow key={station._id}>
+                            <TableCell>
+                              {station.image ? (
+                                <div className="w-10 h-10 rounded-lg overflow-hidden shadow-sm border border-border">
+                                  <img
+                                    src={station.image}
+                                    alt={station.name}
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                              ) : (
+                                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center border border-dashed border-primary/20">
+                                  <Zap className="w-4 h-4 text-primary/60" />
+                                </div>
+                              )}
+                            </TableCell>
                             <TableCell className="font-medium">{station.name}</TableCell>
                             <TableCell>
                               <div className="flex items-center gap-1 text-muted-foreground">

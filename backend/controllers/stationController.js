@@ -1,27 +1,29 @@
 import Station from '../models/Station.js';
 import cloudinary from '../config/cloudinary.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-// Helper: upload buffer to Cloudinary using upload_stream
-const uploadToCloudinary = (buffer, filename) => {
-  return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      {
-        folder: 'ev-stations',
-        public_id: `station_${Date.now()}`,
-        resource_type: 'image',
-      },
-      (error, result) => {
-        if (error) {
-          console.error('❌ Cloudinary upload error:', error);
-          reject(error);
-        } else {
-          console.log('✅ Image uploaded to Cloudinary:', result.secure_url);
-          resolve(result);
-        }
-      }
-    );
-    stream.end(buffer);
-  });
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const STATIONS_FILE = path.join(__dirname, '../data/stations.json');
+
+const readMockStations = () => {
+    try {
+        if (!fs.existsSync(STATIONS_FILE)) return [];
+        return JSON.parse(fs.readFileSync(STATIONS_FILE, 'utf8'));
+    } catch (err) {
+        console.error("Error reading mock stations:", err);
+        return [];
+    }
+};
+
+const writeMockStations = (stations) => {
+    try {
+        fs.writeFileSync(STATIONS_FILE, JSON.stringify(stations, null, 2));
+    } catch (err) {
+        console.error("Error writing mock stations:", err);
+    }
 };
 
 // @desc    Get logged in user stations
@@ -29,11 +31,27 @@ const uploadToCloudinary = (buffer, filename) => {
 // @access  Private
 export const getStations = async (req, res) => {
     try {
-        const stations = await Station.find({ userId: req.user.id });
-        res.status(200).json(stations);
+        const isDbConnected = Station.db.readyState === 1;
+        if (isDbConnected) {
+            const stations = await Station.find({ userId: req.user.id });
+            res.status(200).json(stations);
+        } else {
+            // Only return user-added mock stations from file, removed default mock stations
+            const mockStationStore = readMockStations();
+            console.log(`📡 Serving ${mockStationStore.length} mock stations from file`);
+            res.status(200).json(mockStationStore);
+        }
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
+};
+
+// @desc    Debug: Get all stations stored in mock store
+// @route   GET /api/debug/stations
+// @access  Public
+export const getDebugStations = (req, res) => {
+    const mockStationStore = readMockStations();
+    res.json(mockStationStore);
 };
 
 // @desc    Create station with optional Cloudinary image upload
@@ -43,7 +61,8 @@ export const setStation = async (req, res) => {
     try {
         const { name, location, powerOutput, status, ports, basePricePerKwh, dynamicPricing, convenienceFee, tax } = req.body;
         console.log('📦 Incoming station data:', { name, location, powerOutput, ports });
-        console.log('📷 File received:', req.file ? req.file.originalname : 'none');
+        
+        const isDbConnected = Station.db.readyState === 1;
 
         let parsedDynamicPricing = [];
         if (dynamicPricing) {
@@ -60,30 +79,56 @@ export const setStation = async (req, res) => {
         }
 
         let imageUrl = '';
-
-        // If a file was uploaded via multer, push it to Cloudinary
         if (req.file) {
-            const result = await uploadToCloudinary(req.file.buffer, req.file.originalname);
-            imageUrl = result.secure_url;
+            try {
+                const result = await uploadToCloudinary(req.file.buffer, req.file.originalname);
+                imageUrl = result.secure_url;
+            } catch (error) {
+                console.error('❌ Cloudinary upload failed, continuing without image');
+            }
         }
 
-        const station = new Station({
-            name,
-            location,
-            powerOutput: Number(powerOutput) || 0,
-            ports: Number(ports) || 1,
-            image: imageUrl,
-            status: status || 'online',
-            userId: req.user.id,
-            basePricePerKwh: Number(basePricePerKwh) || 0,
-            dynamicPricing: parsedDynamicPricing,
-            convenienceFee: convFee,
-            tax: Number(tax) || 0,
-        });
+        if (isDbConnected) {
+            const station = new Station({
+                name,
+                location,
+                powerOutput: Number(powerOutput) || 0,
+                ports: Number(ports) || 1,
+                image: imageUrl,
+                status: status || 'online',
+                userId: req.user.id,
+                basePricePerKwh: Number(basePricePerKwh) || 0,
+                dynamicPricing: parsedDynamicPricing,
+                convenienceFee: convFee,
+                tax: Number(tax) || 0,
+            });
 
-        await station.save();
-        console.log('✅ Station saved to MongoDB:', station._id);
-        res.status(201).json(station);
+            await station.save();
+            console.log('✅ Station saved to MongoDB:', station._id);
+            res.status(201).json(station);
+        } else {
+            // Mock mode: Save to file persistence
+            const mockStationStore = readMockStations();
+            const newStation = {
+                _id: Date.now().toString(),
+                name,
+                location,
+                powerOutput: Number(powerOutput) || 0,
+                ports: Number(ports) || 1,
+                image: imageUrl || "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgdmlld0JveD0iMCAwIDUxMiA1MTIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiByeD0iMjU2IiBmaWxsPSJ1cmwoI3BhaW50MF9saW5lYXJfMTI4XzIpIi8+CjxwYXRoIGQ9Ik0zMzYuNSA5NkgxNzUuNUMxNTguMTAxIDk2IDE0NCAxMTAuMTAxIDE0NCAxMjcuNVYzODQuNUMxNDQgNDAxLjg5OSAxNTguMTAxIDQxNiAxNzUuNSA0MTZIMzM2LjVDMzUzLjg5OSA0MTYgMzY4IDQwMS44OTkgMzY4IDM4NC41VjEyNy41QzM2OCAxMTAuMTAxIDM1My44OTkgOTYgMzM2LjUgOTZaIiBmaWxsPSJ3aGl0ZSIvPgo8cGF0aCBkPSJNMjU2IDIzMkwyMjQgMjg4SDI1NkwyMjQgMzQ0TDI4OCAyNTZIMjU2TDI4OCAyMzJMMjU2IDIzMlowIiBmaWxsPSIjMDBBQkZGIi8+CjxwYXRoIGQ9Ik0zODQgMTYwQzQwMi4xMDQgMTYwIDQxNiAxNzQuMjk2IDQxNiAxOTJWMjU2QzQxNiAyODMuNjE0IDQwNC44MDcgMzA4LjYwNyAzODYuNjY3IDMyNi43NzJDMzcwLjE1NCAzNDMuMzA3IDM1My4zMzMgMzUyIDMzNiAzNTJWMzIwQzM0Ny4zMzMgMzIwIDM1OC4xNTQgMzEzLjMwNyAzNjkuNjY3IDI5OS43NzJDMzgwLjgwNyAyODUuNjA3IDM4NCAyNjcuNjE0IDM4NCAyNTZWMzkyQzM4NCAxODUuMjk2IDM3OS4xMDQgMTgwIDM2OCAxODBWMTYwSDM4NFpNMzg0IDE5MkgyODhWMTYwSDM4NFYxOTJaIiBmaWxsPSJ3aGl0ZSIvPgo8ZGVmaW5zPgo8bGluZWFyR3JhZGllbnQgaWQ9InBhaW50MF9saW5lYXJfMTI4XzIiIHgxPSIyNTYiIHkxPSIwIiB4Mj0iMjU2IiB5Mj0iNTEyIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+CjxzdG9wIHN0b3AtY29sb3I9IiMwMEQxRkYiLz4KPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMDA2NkZGIi8+CjwvbGluZWFyR3JhZGllbnQ+CjwvZGVmaW5zPgo8L3N2Zz4K",
+                status: status || 'online',
+                userId: req.user.id,
+                basePricePerKwh: Number(basePricePerKwh) || 0,
+                dynamicPricing: parsedDynamicPricing,
+                convenienceFee: convFee,
+                tax: Number(tax) || 0,
+                createdAt: new Date()
+            };
+            mockStationStore.push(newStation);
+            writeMockStations(mockStationStore);
+            console.log('✅ Station saved to Mock Store (Persistent JSON)');
+            res.status(201).json(newStation);
+        }
     } catch (err) {
         console.error('❌ setStation error:', err.message);
         res.status(500).json({ error: err.message });

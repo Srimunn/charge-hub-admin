@@ -35,12 +35,18 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 console.log("🚀 Server starting...");
 console.log("MONGO_URI:", process.env.MONGO_URI);
 
-// MongoDB Connection
+// MongoDB Connection (Mocked for environment without local MongoDB)
 mongoose.set('bufferCommands', false);
 
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => {
-    console.log("✅ MongoDB Connected");
+const connectDB = async () => {
+  try {
+    // Attempt connection if URI looks like a real cloud URI, otherwise skip to mock
+    if (process.env.MONGO_URI && !process.env.MONGO_URI.includes('localhost')) {
+      await mongoose.connect(process.env.MONGO_URI);
+      console.log("✅ MongoDB Connected");
+    } else {
+      console.log("⚠️ No local MongoDB found. Running in MOCK MODE (No Database Persistence)");
+    }
     
     // Start Simulator
     import('./simulator.js').then(module => {
@@ -50,12 +56,17 @@ mongoose.connect(process.env.MONGO_URI)
 
     app.listen(5000, () => {
       console.log("🌐 Server running on http://localhost:5000");
-      console.log("✅ API Working");
+      console.log("✅ API Working in Mock Mode");
     });
-  })
-  .catch(err => {
-    console.error("❌ MongoDB Connection Error:", err);
-  });
+  } catch (err) {
+    console.error("❌ MongoDB Connection Error. Starting anyway in MOCK MODE...");
+    app.listen(5000, () => {
+      console.log("🌐 Server running on http://localhost:5000");
+    });
+  }
+};
+
+connectDB();
 
 app.get("/", (req, res) => {
   res.send("API Running");

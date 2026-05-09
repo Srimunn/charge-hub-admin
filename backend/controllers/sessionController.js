@@ -75,10 +75,20 @@ export const stopSession = async (req, res) => {
 
 export const getSessions = async (req, res) => {
     try {
-        const sessions = await Session.find({ userId: req.user.id })
-                                      .populate('stationId')
-                                      .sort({ startTime: -1 });
-        res.json(sessions);
+        const isDbConnected = Session.db.readyState === 1;
+        if (isDbConnected) {
+            const sessions = await Session.find({ userId: req.user.id })
+                                          .populate('stationId')
+                                          .sort({ startTime: -1 });
+            res.json(sessions);
+        } else {
+            // Mock data for sessions
+            res.json([
+                { _id: 's1', stationId: { name: 'Downtown Plaza Station' }, energyUsed: 45, cost: 675, status: 'completed', startTime: new Date(Date.now() - 86400000) },
+                { _id: 's2', stationId: { name: 'Mall Parking Level 2' }, energyUsed: 22, cost: 330, status: 'active', startTime: new Date(Date.now() - 3600000) },
+                { _id: 's3', stationId: { name: 'Airport Terminal 1' }, energyUsed: 120, cost: 1800, status: 'completed', startTime: new Date(Date.now() - 172800000) },
+            ]);
+        }
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

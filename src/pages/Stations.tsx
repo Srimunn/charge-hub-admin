@@ -141,7 +141,7 @@ const Stations = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-16 hidden sm:table-cell">Image</TableHead>
+                  <TableHead className="w-20"></TableHead>
                   <TableHead>Station Name</TableHead>
                   <TableHead className="hidden md:table-cell">Location</TableHead>
                   <TableHead>Power (kW)</TableHead>
@@ -155,15 +155,17 @@ const Stations = () => {
                 {stations.map((station) => (
                   <TableRow key={station._id}>
                     {/* Image Thumbnail */}
-                    <TableCell className="hidden sm:table-cell">
+                    <TableCell>
                       {station.image ? (
-                        <img
-                          src={station.image}
-                          alt={station.name}
-                          className="w-12 h-12 rounded-lg object-cover border border-border shadow-sm"
-                        />
+                        <div className="relative w-12 h-12 rounded-xl overflow-hidden shadow-md border-2 border-background group">
+                          <img
+                            src={station.image}
+                            alt={station.name}
+                            className="w-full h-full object-cover transition-transform group-hover:scale-110"
+                          />
+                        </div>
                       ) : (
-                        <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center border border-border">
+                        <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center border-2 border-dashed border-primary/20">
                           <Zap className="w-5 h-5 text-primary/60" />
                         </div>
                       )}
