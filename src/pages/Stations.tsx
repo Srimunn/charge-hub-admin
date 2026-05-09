@@ -6,16 +6,17 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { MoreHorizontal, Power, PowerOff, Wrench, Eye, MapPin, Plus, Zap } from 'lucide-react';
+import { MoreHorizontal, Power, PowerOff, Wrench, Eye, MapPin, Plus, Zap, Edit, Trash2 } from 'lucide-react';
 
 import { useToast } from '@/hooks/use-toast';
 import { Progress } from '@/components/ui/progress';
-import { getStations, createStation } from '@/api';
+import { getStations, createStation, deleteStation } from '@/api';
 import { AddStationModal } from '@/components/dashboard/AddStationModal';
 
 export interface StationData {
   _id: string;
   id?: string;
+  stationNumber?: string;
   name: string;
   location: string;
   status: string;
@@ -32,6 +33,7 @@ export interface StationData {
 
 const Stations = () => {
   const [stations, setStations] = useState<StationData[]>([]);
+  const [editingStation, setEditingStation] = useState<StationData | null>(null);
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -52,6 +54,18 @@ const Stations = () => {
     } catch (err) {
       console.error(err);
       toast({ title: "Error", description: "Could not load stations", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteStation = async (id: string) => {
+    if (window.confirm("Are you sure you want to remove this station?")) {
+      try {
+        await deleteStation(id);
+        toast({ title: "Success", description: "Station removed successfully" });
+        fetchStations();
+      } catch (err: any) {
+        toast({ title: "Error", description: err.message || "Failed to remove station", variant: "destructive" });
+      }
     }
   };
 
@@ -142,6 +156,7 @@ const Stations = () => {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-16 hidden sm:table-cell">Image</TableHead>
+                  <TableHead>Station No.</TableHead>
                   <TableHead>Station Name</TableHead>
                   <TableHead className="hidden md:table-cell">Location</TableHead>
                   <TableHead>Power (kW)</TableHead>
@@ -166,6 +181,13 @@ const Stations = () => {
                         <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center border border-border">
                           <Zap className="w-5 h-5 text-primary/60" />
                         </div>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {station.stationNumber ? (
+                        <Badge variant="outline" className="font-mono font-bold">{station.stationNumber}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">N/A</span>
                       )}
                     </TableCell>
                     <TableCell className="font-medium">{station.name}</TableCell>
@@ -208,6 +230,23 @@ const Stations = () => {
                             <Link to={`/stations/${station._id}`} className="flex items-center gap-2">
                               <Eye className="w-4 h-4" /> View Details
                             </Link>
+                          </DropdownMenuItem>
+                          
+                          <AddStationModal 
+                            editingStation={station}
+                            onStationAdded={fetchStations}
+                            customTrigger={
+                              <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="flex items-center gap-2">
+                                <Edit className="w-4 h-4" /> Update
+                              </DropdownMenuItem>
+                            }
+                          />
+
+                          <DropdownMenuItem 
+                            className="flex items-center gap-2 text-destructive focus:text-destructive"
+                            onClick={() => handleDeleteStation(station._id)}
+                          >
+                            <Trash2 className="w-4 h-4" /> Remove
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

@@ -1,5 +1,5 @@
 import express from "express";
-import { getStations, setStation } from "../controllers/stationController.js";
+import { getStations, setStation, updateStation, deleteStation } from "../controllers/stationController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import upload from "../middleware/uploadMiddleware.js";
 
@@ -9,5 +9,9 @@ const router = express.Router();
 router.route("/")
   .get(protect, getStations)
   .post(protect, upload.single('image'), setStation);
+
+router.route("/:id")
+  .put(protect, upload.single('image'), updateStation)
+  .delete(protect, deleteStation);
 
 export default router;

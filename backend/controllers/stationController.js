@@ -24,6 +24,26 @@ const uploadToCloudinary = (buffer, filename) => {
   });
 };
 
+// Helper: generate unique 8-digit station number
+const generateStationNumber = async (pinPrefix) => {
+    let isUnique = false;
+    let stationNumber = "";
+    
+    while (!isUnique) {
+        // Generate 5 random digits
+        const randomDigits = Math.floor(10000 + Math.random() * 90000).toString();
+        stationNumber = `${pinPrefix}${randomDigits}`;
+        
+        // Check if it exists
+        const existingStation = await Station.findOne({ stationNumber });
+        if (!existingStation) {
+            isUnique = true;
+        }
+    }
+    
+    return stationNumber;
+};
+
 // @desc    Get logged in user stations
 // @route   GET /api/stations
 // @access  Private
@@ -41,8 +61,8 @@ export const getStations = async (req, res) => {
 // @access  Private
 export const setStation = async (req, res) => {
     try {
-        const { name, location, powerOutput, status, ports, basePricePerKwh, dynamicPricing, convenienceFee, tax } = req.body;
-        console.log('📦 Incoming station data:', { name, location, powerOutput, ports });
+        const { name, location, powerOutput, status, ports, basePricePerKwh, dynamicPricing, convenienceFee, tax, districtPin } = req.body;
+        console.log('📦 Incoming station data:', { name, location, powerOutput, ports, districtPin });
         console.log('📷 File received:', req.file ? req.file.originalname : 'none');
 
         let parsedDynamicPricing = [];
@@ -67,7 +87,11 @@ export const setStation = async (req, res) => {
             imageUrl = result.secure_url;
         }
 
+        const pinPrefix = districtPin || "000";
+        const stationNumber = await generateStationNumber(pinPrefix);
+
         const station = new Station({
+            stationNumber,
             name,
             location,
             powerOutput: Number(powerOutput) || 0,
@@ -86,6 +110,77 @@ export const setStation = async (req, res) => {
         res.status(201).json(station);
     } catch (err) {
         console.error('❌ setStation error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// @desc    Update station
+// @route   PUT /api/stations/:id
+// @access  Private
+export const updateStation = async (req, res) => {
+    try {
+        const { name, location, powerOutput, status, ports, basePricePerKwh, dynamicPricing, convenienceFee, tax } = req.body;
+        const station = await Station.findById(req.params.id);
+
+        if (!station) {
+            return res.status(404).json({ error: "Station not found" });
+        }
+
+        if (station.userId.toString() !== req.user.id) {
+            return res.status(401).json({ error: "Not authorized" });
+        }
+
+        let imageUrl = station.image;
+        if (req.file) {
+            const result = await uploadToCloudinary(req.file.buffer, req.file.originalname);
+            imageUrl = result.secure_url;
+        }
+
+        let parsedDynamicPricing = station.dynamicPricing;
+        if (dynamicPricing) {
+            try {
+                parsedDynamicPricing = JSON.parse(dynamicPricing);
+            } catch (error) {
+                console.error('❌ Error parsing dynamicPricing:', error);
+            }
+        }
+
+        station.name = name || station.name;
+        station.location = location || station.location;
+        station.powerOutput = powerOutput ? Number(powerOutput) : station.powerOutput;
+        station.status = status || station.status;
+        station.ports = ports ? Number(ports) : station.ports;
+        station.image = imageUrl;
+        station.basePricePerKwh = basePricePerKwh ? Number(basePricePerKwh) : station.basePricePerKwh;
+        station.dynamicPricing = parsedDynamicPricing;
+        station.convenienceFee = convenienceFee ? Number(convenienceFee) : station.convenienceFee;
+        station.tax = tax ? Number(tax) : station.tax;
+
+        const updatedStation = await station.save();
+        res.status(200).json(updatedStation);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// @desc    Delete station
+// @route   DELETE /api/stations/:id
+// @access  Private
+export const deleteStation = async (req, res) => {
+    try {
+        const station = await Station.findById(req.params.id);
+
+        if (!station) {
+            return res.status(404).json({ error: "Station not found" });
+        }
+
+        if (station.userId.toString() !== req.user.id) {
+            return res.status(401).json({ error: "Not authorized" });
+        }
+
+        await station.deleteOne();
+        res.status(200).json({ message: "Station removed" });
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 };

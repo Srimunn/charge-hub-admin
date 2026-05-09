@@ -83,6 +83,7 @@ const Dashboard = () => {
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          <TableHead>Station No.</TableHead>
                           <TableHead>Station Name</TableHead>
                           <TableHead>Location</TableHead>
                           <TableHead>Status</TableHead>
@@ -92,6 +93,13 @@ const Dashboard = () => {
                       <TableBody>
                         {stations.slice(0, 5).map((station) => (
                           <TableRow key={station._id}>
+                            <TableCell>
+                              {station.stationNumber ? (
+                                <Badge variant="outline" className="font-mono font-bold">{station.stationNumber}</Badge>
+                              ) : (
+                                <span className="text-muted-foreground text-xs">N/A</span>
+                              )}
+                            </TableCell>
                             <TableCell className="font-medium">{station.name}</TableCell>
                             <TableCell>
                               <div className="flex items-center gap-1 text-muted-foreground">

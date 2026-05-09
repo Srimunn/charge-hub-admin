@@ -67,6 +67,7 @@ export const createStation = async (data) => {
     formData.append('basePricePerKwh', String(data.basePricePerKwh || 0));
     formData.append('convenienceFee', String(data.convenienceFee || 0));
     formData.append('tax', String(data.tax || 0));
+    formData.append('districtPin', String(data.districtPin || '000'));
     
     if (data.dynamicPricing) {
         formData.append('dynamicPricing', JSON.stringify(data.dynamicPricing));
@@ -85,11 +86,58 @@ export const createStation = async (data) => {
     return res.json();
 };
 
+export const updateStation = async (id, data) => {
+    const token = getToken();
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+    const formData = new FormData();
+    if (data.name) formData.append('name', data.name);
+    if (data.location) formData.append('location', data.location);
+    if (data.powerOutput) formData.append('powerOutput', String(data.powerOutput));
+    if (data.ports) formData.append('ports', String(data.ports));
+    if (data.status) formData.append('status', data.status);
+    if (data.basePricePerKwh) formData.append('basePricePerKwh', String(data.basePricePerKwh));
+    if (data.convenienceFee) formData.append('convenienceFee', String(data.convenienceFee));
+    if (data.tax) formData.append('tax', String(data.tax));
+    
+    if (data.dynamicPricing) {
+        formData.append('dynamicPricing', JSON.stringify(data.dynamicPricing));
+    }
+    
+    if (data.imageFile) {
+        formData.append('image', data.imageFile);
+    }
+
+    const res = await fetch(`${BASE_URL}/stations/${id}`, {
+        method: 'PUT',
+        headers,
+        body: formData,
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+};
+
+export const deleteStation = async (id) => {
+    const res = await fetch(`${BASE_URL}/stations/${id}`, {
+        method: 'DELETE',
+        headers: authHeaders(),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+};
+
 
 // SESSIONS
 export const getSessions = async () => {
     if (!getToken()) return [];
     const res = await fetch(`${BASE_URL}/sessions`, { headers: authHeaders() });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+};
+
+export const getLiveSessions = async () => {
+    if (!getToken()) return [];
+    const res = await fetch(`${BASE_URL}/sessions/live`, { headers: authHeaders() });
     if (!res.ok) throw new Error(await res.text());
     return res.json();
 };

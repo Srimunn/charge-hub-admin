@@ -4,8 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { createStation } from '@/api';
-import { Plus, MapPin, Zap, Minus, UploadCloud, X, Trash2, Clock } from 'lucide-react';
+import { createStation, updateStation } from '@/api';
+import { Plus, MapPin, Zap, Minus, UploadCloud, X, Trash2, Clock, Edit } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -14,6 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const POWER_OPTIONS = [
   { value: 3.3, label: '3.3 kW' },
@@ -24,16 +25,27 @@ const POWER_OPTIONS = [
 
 export const AddStationModal = ({ 
   onStationAdded,
-  customTrigger 
+  customTrigger,
+  editingStation
 }: { 
   onStationAdded: () => void,
-  customTrigger?: React.ReactNode 
+  customTrigger?: React.ReactNode,
+  editingStation?: any
 }) => {
   const [open, setOpen] = useState(false);
-  const [formData, setFormData] = useState({ name: '', location: '', powerOutput: 0, ports: 1, basePricePerKwh: 15, convenienceFee: 2, tax: 20 });
-  const [dynamicPricing, setDynamicPricing] = useState<{startTime: string, endTime: string, pricePerKwh: number}[]>([]);
+  const [formData, setFormData] = useState({ 
+    name: editingStation?.name || '', 
+    location: editingStation?.location || '', 
+    powerOutput: editingStation?.powerOutput || 0, 
+    ports: editingStation?.ports || 1, 
+    basePricePerKwh: editingStation?.basePricePerKwh || 15, 
+    convenienceFee: editingStation?.convenienceFee || 2, 
+    tax: editingStation?.tax || 20, 
+    districtPin: editingStation?.stationNumber?.substring(0, 3) || '' 
+  });
+  const [dynamicPricing, setDynamicPricing] = useState<{startTime: string, endTime: string, pricePerKwh: number}[]>(editingStation?.dynamicPricing || []);
   const [imageFile, setImageFile] = useState<File | null>(null);    // raw File for upload
-  const [imagePreview, setImagePreview] = useState<string>('');    // DataURL for preview
+  const [imagePreview, setImagePreview] = useState<string>(editingStation?.image || '');    // DataURL for preview
   const [dragActive, setDragActive] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -90,7 +102,7 @@ export const AddStationModal = ({
     }
   };
 
-  const isFormValid = formData.name && formData.location && formData.powerOutput && formData.ports && imageFile;
+  const isFormValid = formData.name && formData.location && formData.powerOutput && formData.ports && (editingStation || formData.districtPin);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,33 +113,53 @@ export const AddStationModal = ({
         throw new Error('Authentication required. Please log in.');
       }
 
-      await createStation({
-        name: formData.name,
-        location: formData.location,
-        powerOutput: formData.powerOutput,
-        ports: formData.ports,
-        basePricePerKwh: formData.basePricePerKwh,
-        convenienceFee: formData.convenienceFee,
-        tax: formData.tax,
-        dynamicPricing,
-        imageFile,          // raw File → backend uploads to Cloudinary
-      });
+      if (editingStation) {
+        await updateStation(editingStation._id, {
+          name: formData.name,
+          location: formData.location,
+          powerOutput: formData.powerOutput,
+          ports: formData.ports,
+          basePricePerKwh: formData.basePricePerKwh,
+          convenienceFee: formData.convenienceFee,
+          tax: formData.tax,
+          dynamicPricing,
+          imageFile,
+        });
+        toast({
+          title: 'Station Updated Successfully',
+          description: 'Station details have been updated in the database',
+        });
+      } else {
+        await createStation({
+          name: formData.name,
+          location: formData.location,
+          powerOutput: formData.powerOutput,
+          ports: formData.ports,
+          basePricePerKwh: formData.basePricePerKwh,
+          convenienceFee: formData.convenienceFee,
+          tax: formData.tax,
+          districtPin: formData.districtPin,
+          dynamicPricing,
+          imageFile,          // raw File → backend uploads to Cloudinary
+        });
+        toast({
+          title: 'Station Created Successfully',
+          description: 'Station integrated successfully into tracking Database',
+        });
+      }
 
-      toast({
-        title: 'Success',
-        description: 'Station integrated successfully into tracking Database',
-      });
-
-      setFormData({ name: '', location: '', powerOutput: 0, ports: 1, basePricePerKwh: 15, convenienceFee: 2, tax: 20 });
-      setDynamicPricing([]);
-      setImageFile(null);
-      setImagePreview('');
+      if (!editingStation) {
+        setFormData({ name: '', location: '', powerOutput: 0, ports: 1, basePricePerKwh: 15, convenienceFee: 2, tax: 20, districtPin: '' });
+        setDynamicPricing([]);
+        setImageFile(null);
+        setImagePreview('');
+      }
       setOpen(false);
       onStationAdded();
     } catch (err: any) {
       toast({
         title: "Error",
-        description: err.message || "Failed to create station",
+        description: err.message || `Failed to ${editingStation ? 'update' : 'create'} station`,
         variant: "destructive"
       });
     } finally {
@@ -147,10 +179,11 @@ export const AddStationModal = ({
       <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold flex items-center gap-2">
-            <Plus className="w-6 h-6 text-primary" /> Add New Station
+            {editingStation ? <Edit className="w-6 h-6 text-primary" /> : <Plus className="w-6 h-6 text-primary" />} 
+            {editingStation ? 'Update Station' : 'Add New Station'}
           </DialogTitle>
           <DialogDescription>
-            Configure the hardware parameters and location for your new EV charging point.
+            {editingStation ? 'Modify the parameters for this charging station.' : 'Configure the hardware parameters and location for your new EV charging point.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -169,6 +202,27 @@ export const AddStationModal = ({
                   </div>
                 </div>
               </div>
+
+              {/* District / Pin (Only for new stations) */}
+              {!editingStation && (
+                <div className="space-y-2">
+                  <Label htmlFor="district">District / Region</Label>
+                  <Select value={formData.districtPin} onValueChange={(value) => setFormData(f => ({...f, districtPin: value}))}>
+                    <SelectTrigger id="district" className="focus:ring-2 focus:ring-primary/50">
+                      <SelectValue placeholder="Select District" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="641">Coimbatore (641)</SelectItem>
+                      <SelectItem value="600">Chennai (600)</SelectItem>
+                      <SelectItem value="638">Erode (638)</SelectItem>
+                      <SelectItem value="625">Madurai (625)</SelectItem>
+                      <SelectItem value="636">Salem (636)</SelectItem>
+                      <SelectItem value="620">Trichy (620)</SelectItem>
+                      <SelectItem value="627">Tirunelveli (627)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               {/* Power Output Cards */}
               <div className="space-y-3">
@@ -303,7 +357,7 @@ export const AddStationModal = ({
 
               <div className="pt-4 border-t">
                 <Button type="submit" disabled={isLoading || !isFormValid} className="w-full h-11 text-base shadow-lg transition-transform hover:-translate-y-0.5" size="lg">
-                  {isLoading ? "Provisioning Hardware..." : "Deploy Charging Station"}
+                  {isLoading ? (editingStation ? "Updating Hardware..." : "Provisioning Hardware...") : (editingStation ? "Update Charging Station" : "Deploy Charging Station")}
                 </Button>
               </div>
         </form>

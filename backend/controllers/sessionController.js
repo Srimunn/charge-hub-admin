@@ -83,3 +83,39 @@ export const getSessions = async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 };
+
+export const getLiveSessions = async (req, res) => {
+    try {
+        const activeSessions = await Session.find({ userId: req.user.id, status: 'active' }).populate('stationId');
+        
+        const liveData = activeSessions.map(session => {
+            const station = session.stationId;
+            const durationHrs = (new Date() - new Date(session.startTime)) / (1000 * 60 * 60);
+            const powerKw = station?.powerOutput || 50;
+            const energy = (durationHrs * powerKw).toFixed(2);
+            
+            // Randomly fluctuate voltage and current slightly for "live" feel
+            const voltage = 390 + Math.floor(Math.random() * 20); // 390 - 410 V
+            const current = Math.floor((powerKw * 1000) / voltage);
+            const temperature = 35 + Math.floor(Math.random() * 15); // 35 - 50 C
+            
+            return {
+                id: session._id,
+                stationNumber: station?.stationNumber || "UNKNOWN",
+                userVehicleId: `EV-${req.user.id.substring(0, 4).toUpperCase()}`,
+                chargingStatus: "Charging",
+                voltage: voltage,
+                current: current,
+                powerOutput: powerKw,
+                chargingSpeed: powerKw,
+                energyDelivered: parseFloat(energy),
+                connectorStatus: "Locked",
+                temperature: temperature
+            };
+        });
+
+        res.json(liveData);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
