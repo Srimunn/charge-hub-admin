@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Session from './models/Session.js';
 import Fault from './models/Fault.js';
 import Station from './models/Station.js';
@@ -6,6 +7,11 @@ export const startSimulation = () => {
     // Run simulation loop every 5 seconds
     setInterval(async () => {
         try {
+            // Skip simulation if database is not connected
+            if (mongoose.connection.readyState !== 1) {
+                return;
+            }
+
             // Find active sessions
             const activeSessions = await Session.find({ status: 'active' });
 
