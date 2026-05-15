@@ -26,4 +26,17 @@ dist-ssr
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?
+# Next.js
+.next/
+out/
+build/
+
+# Backend uploads
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Production
+.vercel
+
+# Testing
+coverage

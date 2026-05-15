@@ -1,5 +1,4 @@
 import Station from '../models/Station.js';
-import cloudinary from '../config/cloudinary.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -46,14 +45,14 @@ const generateStationNumber = async (pinPrefix) => {
     return stationNumber;
 };
 
-// @desc    Get logged in user stations
+// @desc    Get all stations
 // @route   GET /api/stations
-// @access  Private
+// @access  Public
 export const getStations = async (req, res) => {
     try {
         const isDbConnected = Station.db.readyState === 1;
         if (isDbConnected) {
-            const stations = await Station.find({ userId: req.user.id });
+            const stations = await Station.find({});
             res.status(200).json(stations);
         } else {
             // Only return user-added mock stations from file, removed default mock stations
@@ -69,9 +68,24 @@ export const getStations = async (req, res) => {
 // @desc    Debug: Get all stations stored in mock store
 // @route   GET /api/debug/stations
 // @access  Public
-export const getDebugStations = (req, res) => {
-    const mockStationStore = readMockStations();
-    res.json(mockStationStore);
+export const getDebugStations = async (req, res) => {
+    try {
+        const isDbConnected = Station.db.readyState === 1;
+        if (isDbConnected) {
+            const dbStations = await Station.find({});
+            // If you want to show ONLY DB stations:
+            // res.json(dbStations);
+            // If you want to show BOTH DB and Mock stations (combined):
+            const mockStations = readMockStations();
+            const combined = [...dbStations, ...mockStations];
+            res.json(combined);
+        } else {
+            const mockStationStore = readMockStations();
+            res.json(mockStationStore);
+        }
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 };
 
 // @desc    Create station with optional Cloudinary image upload
@@ -79,8 +93,8 @@ export const getDebugStations = (req, res) => {
 // @access  Private
 export const setStation = async (req, res) => {
     try {
-        const { name, location, powerOutput, status, ports, basePricePerKwh, dynamicPricing, convenienceFee, tax, districtPin } = req.body;
-        console.log('📦 Incoming station data:', { name, location, powerOutput, ports, districtPin });
+        const { name, location, powerOutput, status, ports, connectorType, basePricePerKwh, dynamicPricing, convenienceFee, tax, districtPin, latitude, longitude, district } = req.body;
+        console.log('📦 Incoming station data:', { name, location, latitude, longitude, powerOutput, ports, districtPin });
         console.log('📷 File received:', req.file ? req.file.originalname : 'none');
         
         const isDbConnected = Station.db.readyState === 1;
@@ -101,12 +115,9 @@ export const setStation = async (req, res) => {
 
         let imageUrl = '';
         if (req.file) {
-            try {
-                const result = await uploadToCloudinary(req.file.buffer, req.file.originalname);
-                imageUrl = result.secure_url;
-            } catch (error) {
-                console.error('❌ Cloudinary upload failed, continuing without image');
-            }
+            // Store relative path to be served statically
+            imageUrl = `/uploads/${req.file.filename}`;
+            console.log('📷 Image saved locally:', imageUrl);
         }
 
         const pinPrefix = districtPin || "000";
@@ -117,8 +128,12 @@ export const setStation = async (req, res) => {
                 stationNumber,
                 name,
                 location,
+                district,
+                latitude: latitude ? Number(latitude) : undefined,
+                longitude: longitude ? Number(longitude) : undefined,
                 powerOutput: Number(powerOutput) || 0,
                 ports: Number(ports) || 1,
+                connectorType: connectorType || 'Type 2',
                 image: imageUrl,
                 status: status || 'online',
                 userId: req.user.id,
@@ -167,21 +182,18 @@ export const setStation = async (req, res) => {
 // @access  Private
 export const updateStation = async (req, res) => {
     try {
-        const { name, location, powerOutput, status, ports, basePricePerKwh, dynamicPricing, convenienceFee, tax } = req.body;
+        const { name, location, powerOutput, status, ports, connectorType, basePricePerKwh, dynamicPricing, convenienceFee, tax, latitude, longitude, district } = req.body;
         const station = await Station.findById(req.params.id);
 
         if (!station) {
             return res.status(404).json({ error: "Station not found" });
         }
 
-        if (station.userId.toString() !== req.user.id) {
-            return res.status(401).json({ error: "Not authorized" });
-        }
-
         let imageUrl = station.image;
+
         if (req.file) {
-            const result = await uploadToCloudinary(req.file.buffer, req.file.originalname);
-            imageUrl = result.secure_url;
+            imageUrl = `/uploads/${req.file.filename}`;
+            console.log('📷 Image updated locally:', imageUrl);
         }
 
         let parsedDynamicPricing = station.dynamicPricing;
@@ -195,9 +207,13 @@ export const updateStation = async (req, res) => {
 
         station.name = name || station.name;
         station.location = location || station.location;
+        if (district) station.district = district;
+        if (latitude) station.latitude = Number(latitude);
+        if (longitude) station.longitude = Number(longitude);
         station.powerOutput = powerOutput ? Number(powerOutput) : station.powerOutput;
         station.status = status || station.status;
         station.ports = ports ? Number(ports) : station.ports;
+        station.connectorType = connectorType || station.connectorType;
         station.image = imageUrl;
         station.basePricePerKwh = basePricePerKwh ? Number(basePricePerKwh) : station.basePricePerKwh;
         station.dynamicPricing = parsedDynamicPricing;
@@ -222,12 +238,47 @@ export const deleteStation = async (req, res) => {
             return res.status(404).json({ error: "Station not found" });
         }
 
-        if (station.userId.toString() !== req.user.id) {
-            return res.status(401).json({ error: "Not authorized" });
+        await station.deleteOne();
+
+        res.status(200).json({ message: "Station removed" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// @desc    Search stations
+// @route   GET /api/stations/search?query=
+// @access  Public
+export const searchStations = async (req, res) => {
+    try {
+        const { query } = req.query;
+        if (!query) {
+            return res.status(400).json({ error: "Search query is required" });
+        }
+        
+        const isDbConnected = Station.db.readyState === 1;
+        if (!isDbConnected) {
+            // Mock fallback
+            const mockStations = readMockStations();
+            const lowerQuery = query.toLowerCase();
+            const results = mockStations.filter(s => 
+                (s.name && s.name.toLowerCase().includes(lowerQuery)) ||
+                (s.location && s.location.toLowerCase().includes(lowerQuery)) ||
+                (s.district && s.district.toLowerCase().includes(lowerQuery))
+            );
+            return res.status(200).json(results);
         }
 
-        await station.deleteOne();
-        res.status(200).json({ message: "Station removed" });
+        const regex = new RegExp(query, 'i');
+        const stations = await Station.find({
+            $or: [
+                { name: regex },
+                { location: regex },
+                { district: regex }
+            ]
+        });
+
+        res.status(200).json(stations);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

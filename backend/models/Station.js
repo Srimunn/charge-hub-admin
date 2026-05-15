@@ -5,10 +5,14 @@ const stationSchema = new mongoose.Schema({
     stationNumber: { type: String, unique: true, required: true },
     name: { type: String, required: true },
     location: { type: String, required: true },
+    district: String,
+    latitude: Number,
+    longitude: Number,
     status: { type: String, default: "online" },
     ports: { type: Number, default: 1 },
     slots: Number,
     powerOutput: Number,
+    connectorType: { type: String, default: "Type 2" },
     image: String,
     basePricePerKwh: { type: Number, default: 0 },
     dynamicPricing: [{
@@ -18,7 +22,22 @@ const stationSchema = new mongoose.Schema({
     }],
     convenienceFee: { type: Number, default: 0 },
     tax: { type: Number, default: 0 },
+    
+    // Production/Real-time fields
+    lastSeen: { type: Date },
+    faultStatus: { type: String, default: "none" },
+    totalEnergyConsumed: { type: Number, default: 0 },
+    
     createdAt: { type: Date, default: Date.now }
+}, {
+    toJSON: {
+        virtuals: true,
+        transform: (doc, ret) => {
+            ret.stationName = ret.name;
+            ret.availabilityStatus = ret.status;
+            return ret;
+        }
+    }
 });
 
 export default mongoose.model("Station", stationSchema);

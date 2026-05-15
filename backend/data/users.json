@@ -12,5 +12,12 @@
     "email": "itsmesrimun@gmail.com",
     "password": "123456",
     "mobile": "8667709294"
+  },
+  {
+    "_id": "demo-user-id",
+    "name": "Demo User",
+    "email": "demo@example.com",
+    "password": "password",
+    "mobile": "0000000000"
   }
 ]

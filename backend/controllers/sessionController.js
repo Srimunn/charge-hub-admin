@@ -16,6 +16,19 @@ export const startSession = async (req, res) => {
         });
 
         await session.save();
+
+        // 1. Get the station details
+        const station = await Station.findById(stationId);
+        if (station && req.mqttService) {
+            // 2. Notify the station via MQTT
+            req.mqttService.publish(`stations/${station.stationNumber}/command`, {
+                action: "start_charging",
+                sessionId: session._id,
+                timestamp: new Date()
+            });
+            console.log(`🔌 [MQTT] Start command sent to station: ${station.stationNumber}`);
+        }
+
         res.status(201).json(session);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -67,6 +80,17 @@ export const stopSession = async (req, res) => {
         session.cost = energyCost + convenienceFee + tax;
 
         await session.save();
+
+        // Notify the station via MQTT
+        if (station && req.mqttService) {
+            req.mqttService.publish(`stations/${station.stationNumber}/command`, {
+                action: "stop_charging",
+                sessionId: session._id,
+                timestamp: new Date()
+            });
+            console.log(`🔌 [MQTT] Stop command sent to station: ${station.stationNumber}`);
+        }
+
         res.json(session);
     } catch (err) {
         res.status(500).json({ error: err.message });

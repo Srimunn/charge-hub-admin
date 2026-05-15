@@ -22,11 +22,22 @@ import dashboardRoutes from "./routes/dashboardRoutes.js";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import http from "http";
+import { Server } from "socket.io";
+import MQTTService from "./services/mqttService.js";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, ".env") });
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
@@ -34,6 +45,29 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 console.log("🚀 Server starting...");
 console.log("MONGO_URI:", process.env.MONGO_URI);
+
+// Initialize MQTT Service
+const mqttService = new MQTTService(io);
+mqttService.connect();
+
+// Socket.io Room Logic
+io.on("connection", (socket) => {
+  console.log("🔌 New Client Connected:", socket.id);
+
+  socket.on("join_station", (stationId) => {
+    socket.join(`station:${stationId}`);
+    console.log(`👥 Client ${socket.id} joined room: station:${stationId}`);
+  });
+
+  socket.on("leave_station", (stationId) => {
+    socket.leave(`station:${stationId}`);
+    console.log(`🏃 Client ${socket.id} left room: station:${stationId}`);
+  });
+
+  socket.on("disconnect", () => {
+    console.log("🔌 Client Disconnected:", socket.id);
+  });
+});
 
 // MongoDB Connection (Mocked for environment without local MongoDB)
 mongoose.set('bufferCommands', false);
@@ -54,13 +88,13 @@ const connectDB = async () => {
       console.log("✅ Simulation Started");
     });
 
-    app.listen(5000, () => {
+    server.listen(5000, () => {
       console.log("🌐 Server running on http://localhost:5000");
-      console.log("✅ API Working in Mock Mode");
+      console.log("📡 WebSocket and MQTT Ready");
     });
   } catch (err) {
     console.error("❌ MongoDB Connection Error. Starting anyway in MOCK MODE...");
-    app.listen(5000, () => {
+    server.listen(5000, () => {
       console.log("🌐 Server running on http://localhost:5000");
     });
   }
@@ -76,6 +110,11 @@ app.get("/test", (req, res) => {
   res.send("Test working ✅");
 });
 
+app.use((req, res, next) => {
+  req.mqttService = mqttService;
+  next();
+});
+
 // Use routes
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
@@ -84,4 +123,6 @@ app.use("/api/sessions", sessionRoutes);
 app.use("/api/faults", faultRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/dashboard", dashboardRoutes);
-// Use routes
+
+// Static folder for uploads
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));

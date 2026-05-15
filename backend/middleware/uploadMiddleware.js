@@ -1,7 +1,20 @@
 import multer from 'multer';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-// Use memory storage so file buffer is available for Cloudinary upload
-const storage = multer.memoryStorage();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Use disk storage to save files locally
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    // Save to the absolute path of backend/uploads
+    cb(null, path.join(__dirname, '../uploads/'));
+  },
+  filename: (req, file, cb) => {
+    cb(null, `${Date.now()}-${file.originalname}`);
+  },
+});
 
 const fileFilter = (req, file, cb) => {
   const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
