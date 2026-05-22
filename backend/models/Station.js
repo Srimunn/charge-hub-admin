@@ -25,6 +25,18 @@ const stationSchema = new mongoose.Schema({
     
     // Production/Real-time fields
     lastSeen: { type: Date },
+    ocppConnected: { type: Boolean, default: false },
+    ocpp: {
+        vendor: String,
+        model: String,
+        firmwareVersion: String
+    },
+    connectors: [{
+        connectorId: Number,
+        status: String,
+        errorCode: String,
+        updatedAt: Date
+    }],
     faultStatus: { type: String, default: "none" },
     totalEnergyConsumed: { type: Number, default: 0 },
     

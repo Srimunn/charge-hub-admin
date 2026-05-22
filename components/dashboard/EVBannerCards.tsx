@@ -37,7 +37,7 @@ export function EVBannerCards() {
         >
           <CardContent className="p-0 relative">
             <img
-              src={banner.image}
+              src={banner.image.src}
               alt={banner.quote}
               className="w-full h-44 object-cover transition-transform duration-700 group-hover:scale-105"
             />

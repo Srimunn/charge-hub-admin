@@ -56,7 +56,6 @@
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.462.0",
     "mongoose": "^9.3.3",
-    "mqtt": "^5.15.1",
     "multer": "^2.1.1",
     "next": "^14.2.0",
     "next-themes": "^0.3.0",
@@ -72,6 +71,7 @@
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^0.9.9",
+    "ws": "^8.18.3",
     "zod": "^3.25.76"
   },
   "devDependencies": {

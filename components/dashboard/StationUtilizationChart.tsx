@@ -75,7 +75,7 @@ export function StationUtilizationChart() {
               formatter={(value: number) => [`${value}%`, 'Utilization']}
             />
             <Bar dataKey="utilization" radius={[8, 8, 0, 0]} animationDuration={1400} animationEasing="ease-in-out">
-              {chartData.map((entry, index) => (
+              {chartData.map((entry: any, index: number) => (
                 <Cell
                   key={`cell-${index}`}
                   fill={entry.utilization > 70 ? 'url(#utilizationHigh)' : 'url(#utilizationLow)'}

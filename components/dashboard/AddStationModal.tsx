@@ -171,7 +171,7 @@ export const AddStationModal = ({
       }
 
       if (!editingStation) {
-        setFormData({ name: '', location: '', latitude: '', longitude: '', district: '', powerOutput: 0, ports: 1, basePricePerKwh: 15, convenienceFee: 2, tax: 20, districtPin: '' });
+        setFormData({ name: '', location: '', latitude: '', longitude: '', district: '', powerOutput: 0, ports: 1, basePricePerKwh: 15, convenienceFee: 2, tax: 20, connectorType: 'Type 2', districtPin: '' });
         setDynamicPricing([]);
         setImageFile(null);
         setImagePreview('');

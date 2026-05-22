@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { DashboardHeader } from '@/components/layout/DashboardHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,68 +13,32 @@ import {
 import { StopCircle, PlayCircle, Zap, Battery, Activity, Car, Cable, Settings2, Thermometer, IndianRupee } from 'lucide-react';
 import { getSessions, getLiveSessions, startSession, stopSession, getStations } from '@/services/api';
 import { useToast } from '@/hooks/use-toast';
-import { io } from 'socket.io-client';
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export default function SessionsPage() {
-  const [sessions, setSessions] = useState<any[]>([]);
-  const [liveSessions, setLiveSessions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
+  const queryClient = useQueryClient();
 
-  // Socket setup for real-time updates
-  useEffect(() => {
-    const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5000");
+  const sessionsQuery = useQuery({ queryKey: ["sessions"], queryFn: getSessions });
+  const liveQuery = useQuery({ queryKey: ["liveSessions"], queryFn: getLiveSessions, refetchInterval: 15000 });
 
-    socket.on("connect", () => {
-      console.log("Connected to Socket.io");
-    });
-
-    socket.on("live_updates", (update: any) => {
-      if (update.type === "live") {
-        setLiveSessions((prev) => 
-          prev.map((s) => 
-            s.stationNumber === update.stationNumber 
-              ? { 
-                  ...s, 
-                  voltage: update.data.voltage,
-                  current: update.data.current,
-                  powerOutput: update.data.power,
-                  energyDelivered: update.data.energyConsumed,
-                  temperature: update.data.temperature,
-                  chargingSpeed: update.data.power 
-                } 
-              : s
-          )
-        );
-      }
-    });
-
-    socket.on("station_update", () => {
-      fetchData(); 
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, []);
-
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    try {
-      const [allSessionsData, liveData] = await Promise.all([
-        getSessions(),
-        getLiveSessions()
-      ]);
-      setSessions(allSessionsData || []);
-      setLiveSessions(liveData || []);
-    } catch (err) {
-      console.error("Failed to fetch sessions", err);
+  const startMutation = useMutation({
+    mutationFn: (stationId: string) => startSession(stationId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      queryClient.invalidateQueries({ queryKey: ["liveSessions"] });
     }
-  };
+  });
+
+  const stopMutation = useMutation({
+    mutationFn: (sessionId: string) => stopSession(sessionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      queryClient.invalidateQueries({ queryKey: ["liveSessions"] });
+    }
+  });
 
   const handleStartSession = async () => {
     try {
@@ -85,9 +49,8 @@ export default function SessionsPage() {
         return;
       }
       const randomStation = stations[Math.floor(Math.random() * stations.length)];
-      await startSession(randomStation._id);
-      toast({ title: "Session Started", description: `Charging started at ${randomStation.name}` });
-      fetchData();
+      await startMutation.mutateAsync(randomStation._id);
+      toast({ title: "Start Requested", description: `Remote start requested for ${randomStation.name}` });
     } catch (err: any) {
       toast({ title: "Failed to Start", description: err.message, variant: "destructive" });
     } finally {
@@ -97,17 +60,22 @@ export default function SessionsPage() {
 
   const handleStopSession = async (sessionId: string) => {
     try {
-      await stopSession(sessionId);
-      toast({ title: 'Session Stopped', description: `Charging session has been stopped successfully.` });
-      fetchData();
+      await stopMutation.mutateAsync(sessionId);
+      toast({ title: 'Stop Requested', description: `Remote stop requested.` });
     } catch (err: any) {
       toast({ title: "Failed to Stop", description: err.message, variant: "destructive" });
     }
   };
 
-  const activeSessions = sessions.filter(s => s.status === 'active');
-  const totalPower = activeSessions.reduce((sum, s) => sum + (s.energyUsed || 0), 0);
-  const totalCost = sessions.reduce((sum, s) => sum + (s.cost || 0), 0);
+  const sessions = (sessionsQuery.data || []) as any[];
+  const liveSessions = (liveQuery.data || []) as any[];
+
+  const summary = useMemo(() => {
+    const active = sessions.filter((s) => s.status === "active");
+    const totalEnergy = sessions.reduce((sum, s) => sum + (s.energyUsed || 0), 0);
+    const totalCost = sessions.reduce((sum, s) => sum + (s.cost || 0), 0);
+    return { activeCount: active.length, totalEnergy, totalCost };
+  }, [sessions]);
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -127,7 +95,7 @@ export default function SessionsPage() {
               <div className="p-3 rounded-xl bg-success/10"><Zap className="w-6 h-6 text-success" /></div>
               <div>
                 <p className="text-sm text-muted-foreground">Active Sessions</p>
-                <p className="text-2xl font-bold">{activeSessions.length}</p>
+                <p className="text-2xl font-bold">{summary.activeCount}</p>
               </div>
             </CardContent>
           </Card>
@@ -136,7 +104,7 @@ export default function SessionsPage() {
               <div className="p-3 rounded-xl bg-primary/10"><Battery className="w-6 h-6 text-primary" /></div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Energy</p>
-                <p className="text-2xl font-bold">{totalPower.toFixed(2)} kWh</p>
+                <p className="text-2xl font-bold">{summary.totalEnergy.toFixed(2)} kWh</p>
               </div>
             </CardContent>
           </Card>
@@ -145,7 +113,7 @@ export default function SessionsPage() {
               <div className="p-3 rounded-xl bg-info/10"><IndianRupee className="w-6 h-6 text-info" /></div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Cost Generated</p>
-                <p className="text-2xl font-bold">₹{totalCost.toFixed(2)}</p>
+                <p className="text-2xl font-bold">₹{summary.totalCost.toFixed(2)}</p>
               </div>
             </CardContent>
           </Card>

@@ -26,9 +26,9 @@ const getToken = () => {
 
 const authHeaders = () => {
   const token = getToken();
-  return token
-    ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
-    : { "Content-Type": "application/json" };
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
 };
 
 // AUTH

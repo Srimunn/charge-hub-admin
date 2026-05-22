@@ -1,0 +1,4090 @@
+
+
+===== app/(dashboard)/faults/[faultId]/page.tsx =====
+diff --git a/app/(dashboard)/faults/[faultId]/page.tsx b/app/(dashboard)/faults/[faultId]/page.tsx
+index c785cdf..d708e00 100644
+--- a/app/(dashboard)/faults/[faultId]/page.tsx
++++ b/app/(dashboard)/faults/[faultId]/page.tsx
+@@ -1,228 +1,113 @@
+ "use client";
+ 
+-import { useEffect, useState } from 'react';
+-import { useParams, useRouter } from 'next/navigation';
+-import { DashboardHeader } from '@/components/layout/DashboardHeader';
+-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+-import { Button } from '@/components/ui/button';
+-import { Badge } from '@/components/ui/badge';
+-import {
+-  ArrowLeft, RefreshCw, Lock, CheckCircle, Wrench,
+-  ThermometerSun, Target, Search, Wifi, Car, Clock,
+-} from 'lucide-react';
+-import { useToast } from '@/hooks/use-toast';
+-import { format } from 'date-fns';
+-import { getFaultById, resolveFault } from '@/services/api';
+-
+-const faultTypeLabels: any = {
+-  misalignment: 'Misalignment',
+-  over_temperature: 'Over-Temperature',
+-  foreign_object: 'Foreign Object Detection',
+-  communication_loss: 'Communication Loss',
+-  collision: 'Collision',
+-};
+-
+-const faultTypeIcons: any = {
+-  misalignment: <Target className="w-5 h-5" />,
+-  over_temperature: <ThermometerSun className="w-5 h-5" />,
+-  foreign_object: <Search className="w-5 h-5" />,
+-  communication_loss: <Wifi className="w-5 h-5" />,
+-  collision: <Car className="w-5 h-5" />,
+-};
++import { useParams, useRouter } from "next/navigation";
++import { DashboardHeader } from "@/components/layout/DashboardHeader";
++import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
++import { Button } from "@/components/ui/button";
++import { Badge } from "@/components/ui/badge";
++import { ArrowLeft, CheckCircle } from "lucide-react";
++import { getFaultById, resolveFault } from "@/services/api";
++import { format } from "date-fns";
++import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
++import { useToast } from "@/hooks/use-toast";
+ 
+ export default function FaultDetailPage() {
+   const params = useParams();
+   const faultId = params.faultId as string;
+   const router = useRouter();
++  const queryClient = useQueryClient();
+   const { toast } = useToast();
+-  const [fault, setFault] = useState<any>(null);
+-  const [isLoading, setIsLoading] = useState(true);
+-
+-  useEffect(() => {
+-    const fetchFault = async () => {
+-      try {
+-        const data = await getFaultById(faultId);
+-        setFault(data);
+-      } catch (err) {
+-        console.error(err);
+-        toast({ title: "Error", description: "Failed to load fault details", variant: "destructive" });
+-      } finally {
+-        setIsLoading(false);
+-      }
+-    };
+-    if (faultId) fetchFault();
+-  }, [faultId, toast]);
+ 
+-  if (isLoading) {
+-    return <div className="p-8 text-center">Loading fault details...</div>;
++  const faultQuery = useQuery({
++    queryKey: ["fault", faultId],
++    queryFn: () => getFaultById(faultId),
++    enabled: Boolean(faultId),
++  });
++
++  const resolveMutation = useMutation({
++    mutationFn: (id: string) => resolveFault(id),
++    onSuccess: () => {
++      queryClient.invalidateQueries({ queryKey: ["faults"] });
++      queryClient.invalidateQueries({ queryKey: ["fault", faultId] });
++      toast({ title: "Fault Resolved", description: "Fault marked as resolved." });
++    },
++    onError: (err: any) => {
++      toast({ title: "Error", description: err?.message, variant: "destructive" });
++    },
++  });
++
++  const fault = faultQuery.data as any;
++
++  if (faultQuery.isLoading) {
++    return <div className="p-8 text-center text-muted-foreground">Loading fault details…</div>;
+   }
+ 
+-  if (!fault) {
++  if (faultQuery.isError || !fault) {
+     return (
+       <div className="flex flex-col min-h-screen">
+         <DashboardHeader title="Fault Not Found" />
+         <div className="flex-1 flex items-center justify-center">
+           <div className="text-center">
+             <h2 className="text-xl font-semibold mb-2">Fault not found</h2>
+-            <Button onClick={() => router.push('/faults')}><ArrowLeft className="w-4 h-4 mr-2" /> Back to Faults</Button>
++            <Button onClick={() => router.push("/faults")}><ArrowLeft className="w-4 h-4 mr-2" /> Back to Faults</Button>
+           </div>
+         </div>
+       </div>
+     );
+   }
+ 
+-  const handleRetry = () => {
+-    toast({ title: 'Retrying Session', description: `Attempting to resume session for fault ${fault._id}` });
+-  };
+-
+-  const handleLockStation = () => {
+-    toast({ title: 'Station Locked', description: `Station ${fault.stationId?.name} has been locked for inspection` });
+-  };
+-
+-  const handleResolve = async () => {
+-    try {
+-      await resolveFault(fault._id);
+-      setFault({ ...fault, status: 'resolved', resolvedAt: new Date() });
+-      toast({ title: 'Fault Resolved', description: `Fault ${fault._id} marked as resolved` });
+-    } catch (err: any) {
+-      toast({ title: "Error", description: err.message, variant: "destructive" });
+-    }
+-  };
+-
+-  const handleCreateTicket = () => {
+-    toast({ title: 'Ticket Created', description: `Maintenance ticket created for fault ${fault._id}` });
+-  };
+-
+-  const isRecoverable = fault.severity !== 'high' && fault.type !== 'collision';
+-
+   return (
+     <div className="flex flex-col min-h-screen">
+-      <DashboardHeader title={`Fault ${fault.id}`} subtitle={faultTypeLabels[fault.type]} />
++      <DashboardHeader title="Fault Details" subtitle={fault.stationId?.name || "Unknown Station"} />
+       <div className="flex-1 p-6 space-y-6">
+-        <Button variant="ghost" onClick={() => router.push('/faults')} className="gap-2">
++        <Button variant="outline" onClick={() => router.push("/faults")} className="gap-2">
+           <ArrowLeft className="w-4 h-4" /> Back to Faults
+         </Button>
+ 
+-        {/* Summary Card */}
+         <Card>
+           <CardHeader>
+-            <CardTitle className="flex items-center gap-2">
+-              {faultTypeIcons[fault.type]}
+-              Fault Summary
+-              <Badge className={
+-                fault.severity === 'high' ? 'bg-destructive text-destructive-foreground' :
+-                fault.severity === 'medium' ? 'bg-warning text-warning-foreground' :
+-                'bg-success text-success-foreground'
+-              }>
+-                {fault.severity}
+-              </Badge>
+-              <Badge variant="outline" className={
+-                fault.status === 'open' ? 'border-destructive text-destructive' :
+-                fault.status === 'acknowledged' ? 'border-warning text-warning' :
+-                'border-success text-success'
+-              }>
++            <CardTitle className="flex items-center justify-between">
++              <span className="capitalize">{fault.type}</span>
++              <Badge variant="outline" className={fault.status === "active" ? "border-destructive text-destructive" : "border-success text-success"}>
+                 {fault.status}
+               </Badge>
+             </CardTitle>
+           </CardHeader>
+-          <CardContent>
+-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+-              <div className="p-4 rounded-lg bg-secondary/50">
+-                <p className="text-sm text-muted-foreground">Type</p>
+-                <p className="font-medium">{faultTypeLabels[fault.type]}</p>
+-              </div>
++          <CardContent className="space-y-4">
++            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+               <div className="p-4 rounded-lg bg-secondary/50">
+-                <p className="text-sm text-muted-foreground">Station</p>
+-                <p className="font-medium">{fault.stationId}</p>
++                <p className="text-sm text-muted-foreground">Severity</p>
++                <p className="font-medium capitalize">{fault.severity}</p>
+               </div>
+               <div className="p-4 rounded-lg bg-secondary/50">
+-                <p className="text-sm text-muted-foreground">Session</p>
+-                <p className="font-medium">{fault.sessionId || 'N/A'}</p>
++                <p className="text-sm text-muted-foreground">Detected</p>
++                <p className="font-medium">{fault.createdAt ? format(new Date(fault.createdAt), "MMM dd, HH:mm") : "—"}</p>
+               </div>
+               <div className="p-4 rounded-lg bg-secondary/50">
+-                <p className="text-sm text-muted-foreground">Occurred</p>
+-                <p className="font-medium">{format(new Date(fault.timestamp), 'MMM dd, HH:mm:ss')}</p>
++                <p className="text-sm text-muted-foreground">Resolved</p>
++                <p className="font-medium">{fault.resolvedAt ? format(new Date(fault.resolvedAt), "MMM dd, HH:mm") : "—"}</p>
+               </div>
+             </div>
+-            <p className="mt-4 text-muted-foreground">{fault.description}</p>
+-          </CardContent>
+-        </Card>
+-
+-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+-          {/* Technical Details */}
+-          <Card>
+-            <CardHeader><CardTitle>Technical Details</CardTitle></CardHeader>
+-            <CardContent className="space-y-4">
+-              <div>
+-                <p className="text-sm font-medium text-muted-foreground mb-2">Sensor Values</p>
+-                <div className="space-y-2">
+-                  {Object.entries(fault.sensorValues).map(([key, value]) => (
+-                    <div key={key} className="flex justify-between items-center p-3 rounded-lg bg-secondary/50">
+-                      <span className="text-sm">{key}</span>
+-                      <span className="font-mono text-sm font-medium">{value}</span>
+-                    </div>
+-                  ))}
+-                </div>
+-              </div>
+-              <div>
+-                <p className="text-sm font-medium text-muted-foreground mb-1">Last Known State</p>
+-                <p className="text-sm p-3 rounded-lg bg-secondary/50">{fault.lastKnownState}</p>
+-              </div>
+-            </CardContent>
+-          </Card>
+ 
+-          {/* Timeline */}
+-          <Card>
+-            <CardHeader><CardTitle>Event Timeline</CardTitle></CardHeader>
+-            <CardContent>
+-              <div className="space-y-4">
+-                {fault.timeline.map((event, i) => (
+-                  <div key={i} className="flex gap-3">
+-                    <div className="flex flex-col items-center">
+-                      <div className="w-3 h-3 rounded-full bg-primary mt-1" />
+-                      {i < fault.timeline.length - 1 && <div className="w-0.5 flex-1 bg-border" />}
+-                    </div>
+-                    <div className="pb-4">
+-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+-                        <Clock className="w-3 h-3" />
+-                        {format(new Date(event.time), 'HH:mm:ss')}
+-                      </p>
+-                      <p className="text-sm">{event.event}</p>
+-                    </div>
+-                  </div>
+-                ))}
+-              </div>
+-            </CardContent>
+-          </Card>
+-        </div>
++            <div className="p-4 rounded-lg border bg-muted/20">
++              <p className="text-sm text-muted-foreground mb-1">Message</p>
++              <p className="font-medium">{fault.message || "—"}</p>
++            </div>
+ 
+-        {/* Actions */}
+-        <Card>
+-          <CardHeader><CardTitle>Actions</CardTitle></CardHeader>
+-          <CardContent>
+-            <div className="flex flex-wrap gap-4">
+-              {isRecoverable && fault.sessionId && fault.status !== 'resolved' && (
+-                <Button onClick={handleRetry} className="gap-2">
+-                  <RefreshCw className="w-4 h-4" /> Retry Session
+-                </Button>
+-              )}
+-              {fault.severity === 'high' && fault.status !== 'resolved' && (
+-                <Button onClick={handleLockStation} variant="destructive" className="gap-2">
+-                  <Lock className="w-4 h-4" /> Stop & Lock Station
+-                </Button>
+-              )}
+-              {fault.status !== 'resolved' && (
+-                <Button onClick={handleResolve} variant="outline" className="gap-2 text-success border-success hover:bg-success/10">
+-                  <CheckCircle className="w-4 h-4" /> Mark as Resolved
+-                </Button>
+-              )}
+-              <Button onClick={handleCreateTicket} variant="secondary" className="gap-2">
+-                <Wrench className="w-4 h-4" /> Create Maintenance Ticket
++            {fault.status !== "resolved" ? (
++              <Button
++                variant="outline"
++                className="gap-2"
++                onClick={() => resolveMutation.mutate(fault._id)}
++                disabled={resolveMutation.isPending}
++              >
++                <CheckCircle className="w-4 h-4 text-success" /> Resolve Fault
+               </Button>
+-            </div>
++            ) : null}
+           </CardContent>
+         </Card>
+       </div>
+     </div>
+   );
+ }
++
+
+
+===== app/(dashboard)/faults/page.tsx =====
+diff --git a/app/(dashboard)/faults/page.tsx b/app/(dashboard)/faults/page.tsx
+index b0082e0..ef09a06 100644
+--- a/app/(dashboard)/faults/page.tsx
++++ b/app/(dashboard)/faults/page.tsx
+@@ -1,7 +1,6 @@
+ "use client";
+ 
+-import { useState, useEffect } from 'react';
+-import { useRouter } from 'next/navigation';
++import { useMemo } from 'react';
+ import { DashboardHeader } from '@/components/layout/DashboardHeader';
+ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+ import { Button } from '@/components/ui/button';
+@@ -15,39 +14,34 @@ import {
+ import { getFaults, resolveFault } from '@/services/api';
+ import { useToast } from '@/hooks/use-toast';
+ import { format } from 'date-fns';
++import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+ 
+ export default function FaultsPage() {
+-  const [faults, setFaults] = useState<any[]>([]);
+-  const router = useRouter();
+   const { toast } = useToast();
++  const queryClient = useQueryClient();
+ 
+-  useEffect(() => {
+-    fetchFaults();
+-    const interval = setInterval(fetchFaults, 5000);
+-    return () => clearInterval(interval);
+-  }, []);
++  const faultsQuery = useQuery({ queryKey: ["faults"], queryFn: getFaults });
++  const faults = (faultsQuery.data || []) as any[];
+ 
+-  const fetchFaults = async () => {
+-    try {
+-      const data = await getFaults();
+-      setFaults(data);
+-    } catch (err) {
+-      console.error(err);
+-    }
+-  };
+-
+-  const handleResolve = async (id: string) => {
+-    try {
+-      await resolveFault(id);
++  const resolveMutation = useMutation({
++    mutationFn: resolveFault,
++    onSuccess: () => {
++      queryClient.invalidateQueries({ queryKey: ["faults"] });
+       toast({ title: 'Fault Resolved', description: `Fault safely marked as resolved in the system.` });
+-      fetchFaults();
+-    } catch (err: any) {
+-      toast({ title: 'Error Resolving', description: err.message, variant: 'destructive' });
++    },
++    onError: (err: any) => {
++      toast({ title: 'Error Resolving', description: err?.message, variant: 'destructive' });
+     }
+-  };
++  });
++
++  const handleResolve = (id: string) => resolveMutation.mutate(id);
+ 
+-  const openCount = faults.filter(f => f.status === 'active').length;
+-  const highCount = faults.filter(f => f.severity === 'high' && f.status === 'active').length;
++  const counts = useMemo(() => {
++    const openCount = faults.filter((f) => f.status === "active").length;
++    const highCount = faults.filter((f) => f.severity === "high" && f.status === "active").length;
++    const resolvedCount = faults.filter((f) => f.status === "resolved").length;
++    return { openCount, highCount, resolvedCount };
++  }, [faults]);
+ 
+   return (
+     <div className="flex flex-col min-h-screen">
+@@ -62,7 +56,7 @@ export default function FaultsPage() {
+               </div>
+               <div>
+                 <p className="text-sm text-muted-foreground">Active Faults</p>
+-                <p className="text-2xl font-bold">{openCount}</p>
++                <p className="text-2xl font-bold">{counts.openCount}</p>
+               </div>
+             </CardContent>
+           </Card>
+@@ -73,7 +67,7 @@ export default function FaultsPage() {
+               </div>
+               <div>
+                 <p className="text-sm text-destructive font-semibold">Critical (High)</p>
+-                <p className="text-2xl font-bold text-destructive animate-pulse">{highCount}</p>
++                <p className="text-2xl font-bold text-destructive animate-pulse">{counts.highCount}</p>
+               </div>
+             </CardContent>
+           </Card>
+@@ -84,7 +78,7 @@ export default function FaultsPage() {
+               </div>
+               <div>
+                 <p className="text-sm text-muted-foreground">Resolved</p>
+-                <p className="text-2xl font-bold">{faults.filter(f => f.status === 'resolved').length}</p>
++                <p className="text-2xl font-bold">{counts.resolvedCount}</p>
+               </div>
+             </CardContent>
+           </Card>
+@@ -96,7 +90,9 @@ export default function FaultsPage() {
+             <CardTitle>All Faults</CardTitle>
+           </CardHeader>
+           <CardContent>
+-            {faults.length === 0 ? <p className="text-muted-foreground p-4 text-center">No faults detected.</p> : (
++            {faultsQuery.isLoading ? (
++              <div className="p-8 text-center text-muted-foreground">Loading faults…</div>
++            ) : faults.length === 0 ? <p className="text-muted-foreground p-4 text-center">No faults detected.</p> : (
+             <Table>
+               <TableHeader>
+                 <TableRow>
+
+
+===== app/(dashboard)/layout.tsx =====
+diff --git a/app/(dashboard)/layout.tsx b/app/(dashboard)/layout.tsx
+index fc480ff..03efc77 100644
+--- a/app/(dashboard)/layout.tsx
++++ b/app/(dashboard)/layout.tsx
+@@ -3,6 +3,7 @@
+ import { DashboardSidebar } from '@/components/layout/DashboardSidebar';
+ import { useEffect, useState } from 'react';
+ import { useRouter } from 'next/navigation';
++import { ReconnectBanner } from "@/components/ReconnectBanner";
+ 
+ export default function DashboardLayout({
+   children,
+@@ -33,6 +34,7 @@ export default function DashboardLayout({
+     <div className="flex h-screen w-full overflow-hidden p-3" style={{ backgroundColor: '#DADBDF' }}>
+       <DashboardSidebar />
+       <div className="flex-1 h-full overflow-hidden rounded-[2.5rem] bg-background shadow-md flex flex-col border border-black/5 ml-3">
++        <ReconnectBanner />
+         <main className="flex-1 h-full overflow-auto">
+           {children}
+         </main>
+
+
+===== app/(dashboard)/sessions/page.tsx =====
+diff --git a/app/(dashboard)/sessions/page.tsx b/app/(dashboard)/sessions/page.tsx
+index bc5077f..9d59366 100644
+--- a/app/(dashboard)/sessions/page.tsx
++++ b/app/(dashboard)/sessions/page.tsx
+@@ -1,6 +1,6 @@
+ "use client";
+ 
+-import { useState, useEffect } from 'react';
++import { useMemo, useState } from 'react';
+ import { useRouter } from 'next/navigation';
+ import { DashboardHeader } from '@/components/layout/DashboardHeader';
+ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+@@ -13,68 +13,32 @@ import {
+ import { StopCircle, PlayCircle, Zap, Battery, Activity, Car, Cable, Settings2, Thermometer, IndianRupee } from 'lucide-react';
+ import { getSessions, getLiveSessions, startSession, stopSession, getStations } from '@/services/api';
+ import { useToast } from '@/hooks/use-toast';
+-import { io } from 'socket.io-client';
++import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+ 
+ export default function SessionsPage() {
+-  const [sessions, setSessions] = useState<any[]>([]);
+-  const [liveSessions, setLiveSessions] = useState<any[]>([]);
+   const [isLoading, setIsLoading] = useState(false);
+   const { toast } = useToast();
+   const router = useRouter();
++  const queryClient = useQueryClient();
+ 
+-  // Socket setup for real-time updates
+-  useEffect(() => {
+-    const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5000");
++  const sessionsQuery = useQuery({ queryKey: ["sessions"], queryFn: getSessions });
++  const liveQuery = useQuery({ queryKey: ["liveSessions"], queryFn: getLiveSessions, refetchInterval: 15000 });
+ 
+-    socket.on("connect", () => {
+-      console.log("Connected to Socket.io");
+-    });
+-
+-    socket.on("live_updates", (update: any) => {
+-      if (update.type === "live") {
+-        setLiveSessions((prev) => 
+-          prev.map((s) => 
+-            s.stationNumber === update.stationNumber 
+-              ? { 
+-                  ...s, 
+-                  voltage: update.data.voltage,
+-                  current: update.data.current,
+-                  powerOutput: update.data.power,
+-                  energyDelivered: update.data.energyConsumed,
+-                  temperature: update.data.temperature,
+-                  chargingSpeed: update.data.power 
+-                } 
+-              : s
+-          )
+-        );
+-      }
+-    });
+-
+-    socket.on("station_update", () => {
+-      fetchData(); 
+-    });
+-
+-    return () => {
+-      socket.disconnect();
+-    };
+-  }, []);
+-
+-  useEffect(() => {
+-    fetchData();
+-  }, []);
++  const startMutation = useMutation({
++    mutationFn: (stationId: string) => startSession(stationId),
++    onSuccess: () => {
++      queryClient.invalidateQueries({ queryKey: ["sessions"] });
++      queryClient.invalidateQueries({ queryKey: ["liveSessions"] });
++    }
++  });
+ 
+-  const fetchData = async () => {
+-    try {
+-      const [allSessionsData, liveData] = await Promise.all([
+-        getSessions(),
+-        getLiveSessions()
+-      ]);
+-      setSessions(allSessionsData || []);
+-      setLiveSessions(liveData || []);
+-    } catch (err) {
+-      console.error("Failed to fetch sessions", err);
++  const stopMutation = useMutation({
++    mutationFn: (sessionId: string) => stopSession(sessionId),
++    onSuccess: () => {
++      queryClient.invalidateQueries({ queryKey: ["sessions"] });
++      queryClient.invalidateQueries({ queryKey: ["liveSessions"] });
+     }
+-  };
++  });
+ 
+   const handleStartSession = async () => {
+     try {
+@@ -85,9 +49,8 @@ export default function SessionsPage() {
+         return;
+       }
+       const randomStation = stations[Math.floor(Math.random() * stations.length)];
+-      await startSession(randomStation._id);
+-      toast({ title: "Session Started", description: `Charging started at ${randomStation.name}` });
+-      fetchData();
++      await startMutation.mutateAsync(randomStation._id);
++      toast({ title: "Start Requested", description: `Remote start requested for ${randomStation.name}` });
+     } catch (err: any) {
+       toast({ title: "Failed to Start", description: err.message, variant: "destructive" });
+     } finally {
+@@ -97,17 +60,22 @@ export default function SessionsPage() {
+ 
+   const handleStopSession = async (sessionId: string) => {
+     try {
+-      await stopSession(sessionId);
+-      toast({ title: 'Session Stopped', description: `Charging session has been stopped successfully.` });
+-      fetchData();
++      await stopMutation.mutateAsync(sessionId);
++      toast({ title: 'Stop Requested', description: `Remote stop requested.` });
+     } catch (err: any) {
+       toast({ title: "Failed to Stop", description: err.message, variant: "destructive" });
+     }
+   };
+ 
+-  const activeSessions = sessions.filter(s => s.status === 'active');
+-  const totalPower = activeSessions.reduce((sum, s) => sum + (s.energyUsed || 0), 0);
+-  const totalCost = sessions.reduce((sum, s) => sum + (s.cost || 0), 0);
++  const sessions = (sessionsQuery.data || []) as any[];
++  const liveSessions = (liveQuery.data || []) as any[];
++
++  const summary = useMemo(() => {
++    const active = sessions.filter((s) => s.status === "active");
++    const totalEnergy = sessions.reduce((sum, s) => sum + (s.energyUsed || 0), 0);
++    const totalCost = sessions.reduce((sum, s) => sum + (s.cost || 0), 0);
++    return { activeCount: active.length, totalEnergy, totalCost };
++  }, [sessions]);
+ 
+   return (
+     <div className="flex flex-col min-h-screen">
+@@ -127,7 +95,7 @@ export default function SessionsPage() {
+               <div className="p-3 rounded-xl bg-success/10"><Zap className="w-6 h-6 text-success" /></div>
+               <div>
+                 <p className="text-sm text-muted-foreground">Active Sessions</p>
+-                <p className="text-2xl font-bold">{activeSessions.length}</p>
++                <p className="text-2xl font-bold">{summary.activeCount}</p>
+               </div>
+             </CardContent>
+           </Card>
+@@ -136,7 +104,7 @@ export default function SessionsPage() {
+               <div className="p-3 rounded-xl bg-primary/10"><Battery className="w-6 h-6 text-primary" /></div>
+               <div>
+                 <p className="text-sm text-muted-foreground">Total Energy</p>
+-                <p className="text-2xl font-bold">{totalPower.toFixed(2)} kWh</p>
++                <p className="text-2xl font-bold">{summary.totalEnergy.toFixed(2)} kWh</p>
+               </div>
+             </CardContent>
+           </Card>
+@@ -145,7 +113,7 @@ export default function SessionsPage() {
+               <div className="p-3 rounded-xl bg-info/10"><IndianRupee className="w-6 h-6 text-info" /></div>
+               <div>
+                 <p className="text-sm text-muted-foreground">Total Cost Generated</p>
+-                <p className="text-2xl font-bold">₹{totalCost.toFixed(2)}</p>
++                <p className="text-2xl font-bold">₹{summary.totalCost.toFixed(2)}</p>
+               </div>
+             </CardContent>
+           </Card>
+
+
+===== app/(dashboard)/stations/[stationId]/page.tsx =====
+diff --git a/app/(dashboard)/stations/[stationId]/page.tsx b/app/(dashboard)/stations/[stationId]/page.tsx
+index 5ffd65f..6e81ea6 100644
+--- a/app/(dashboard)/stations/[stationId]/page.tsx
++++ b/app/(dashboard)/stations/[stationId]/page.tsx
+@@ -1,70 +1,65 @@
+ "use client";
+ 
+-import { useEffect, useState } from 'react';
+-import { useParams, useRouter } from 'next/navigation';
+-import { DashboardHeader } from '@/components/layout/DashboardHeader';
+-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+-import { Button } from '@/components/ui/button';
+-import { Badge } from '@/components/ui/badge';
+-import {
+-  ArrowLeft,
+-  Radio,
+-  Thermometer,
+-  Cpu,
+-  Disc,
+-  RefreshCw,
+-  PowerOff,
+-  Download,
+-  CheckCircle,
+-  AlertTriangle,
+-  XCircle,
+-  Shield,
+-  Target,
+-  Search,
+-  Wifi,
+-} from 'lucide-react';
+-import { mockStationHealth } from '@/data/mockData';
+-import { useToast } from '@/hooks/use-toast';
+-import { format } from 'date-fns';
+-import { getStationById } from '@/services/api';
++import { useEffect, useMemo } from "react";
++import { useParams, useRouter } from "next/navigation";
++import { DashboardHeader } from "@/components/layout/DashboardHeader";
++import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
++import { Button } from "@/components/ui/button";
++import { Badge } from "@/components/ui/badge";
++import { ArrowLeft } from "lucide-react";
++import { getStationById } from "@/services/api";
++import { useQuery, useQueryClient } from "@tanstack/react-query";
++import { getSocket } from "@/lib/socket";
+ 
+ export default function StationDetailPage() {
+   const params = useParams();
+   const stationId = params.stationId as string;
+   const router = useRouter();
+-  const { toast } = useToast();
++  const queryClient = useQueryClient();
+ 
+-  const [station, setStation] = useState<any>(null);
+-  const [isLoading, setIsLoading] = useState(true);
++  const stationQuery = useQuery({
++    queryKey: ["station", stationId],
++    queryFn: () => getStationById(stationId),
++    enabled: Boolean(stationId),
++  });
++
++  useQuery({
++    queryKey: ["liveTelemetry"],
++    queryFn: async () => ({}),
++    initialData: {},
++    staleTime: Infinity,
++  });
++
++  const station = stationQuery.data as any;
++  const telemetryMap = (queryClient.getQueryData(["liveTelemetry"]) || {}) as Record<string, any>;
++  const telemetry = station?._id ? telemetryMap?.[station._id] : undefined;
+ 
+   useEffect(() => {
+-    const fetchStation = async () => {
+-      try {
+-        const data = await getStationById(stationId);
+-        setStation(data);
+-      } catch (err) {
+-        console.error(err);
+-        toast({ title: "Error", description: "Failed to load station details", variant: "destructive" });
+-      } finally {
+-        setIsLoading(false);
+-      }
++    if (!stationId) return;
++    const socket = getSocket();
++    socket.emit("join_station", stationId);
++    return () => {
++      socket.emit("leave_station", stationId);
+     };
++  }, [stationId]);
+ 
+-    if (stationId) fetchStation();
+-  }, [stationId, toast]);
++  const connectors = useMemo(() => {
++    if (!Array.isArray(station?.connectors)) return [];
++    return [...station.connectors].sort((a: any, b: any) => Number(a.connectorId) - Number(b.connectorId));
++  }, [station?.connectors]);
+ 
+-  if (isLoading) {
+-    return <div className="p-8 text-center">Loading station details...</div>;
++  if (stationQuery.isLoading) {
++    return <div className="p-8 text-center text-muted-foreground">Loading station details…</div>;
+   }
+ 
+-  if (!station) {
++  if (stationQuery.isError || !station) {
+     return (
+       <div className="flex flex-col min-h-screen">
+         <DashboardHeader title="Station Not Found" />
+         <div className="flex-1 flex items-center justify-center">
+           <div className="text-center">
+             <h2 className="text-xl font-semibold mb-2">Station not found</h2>
+-            <Button onClick={() => router.push('/stations')}>
++            <Button onClick={() => router.push("/stations")}>
+               <ArrowLeft className="w-4 h-4 mr-2" /> Back to Stations
+             </Button>
+           </div>
+@@ -73,248 +68,83 @@ export default function StationDetailPage() {
+     );
+   }
+ 
+-  const getStatusIcon = (status: string) => {
+-    switch (status) {
+-      case 'operational':
+-        return <CheckCircle className="w-5 h-5 text-success" />;
+-      case 'degraded':
+-        return <AlertTriangle className="w-5 h-5 text-warning" />;
+-      case 'fault':
+-        return <XCircle className="w-5 h-5 text-destructive" />;
+-      default:
+-        return null;
+-    }
+-  };
+-
+-  const getStatusColor = (status: string) => {
+-    switch (status) {
+-      case 'operational':
+-        return 'bg-success/10 text-success border-success/20';
+-      case 'degraded':
+-        return 'bg-warning/10 text-warning border-warning/20';
+-      case 'fault':
+-        return 'bg-destructive/10 text-destructive border-destructive/20';
+-      default:
+-        return 'bg-muted text-muted-foreground';
+-    }
+-  };
+-
+-  const handleRestart = () => {
+-    toast({
+-      title: 'Restarting Station',
+-      description: `Station ${station.id} is being restarted...`,
+-    });
+-  };
+-
+-  const handleDisableCharging = () => {
+-    toast({
+-      title: 'Charging Disabled',
+-      description: `Charging has been disabled on ${station.id}`,
+-    });
+-  };
+-
+-  const handleFirmwareUpdate = () => {
+-    toast({
+-      title: 'Firmware Update Started',
+-      description: `Pushing firmware update to ${station.id}...`,
+-    });
+-  };
+-
+   return (
+     <div className="flex flex-col min-h-screen">
+-      <DashboardHeader 
+-        title={station.name} 
+-        subtitle={station.id}
+-      />
+-      
++      <DashboardHeader title={station.name} subtitle={station.location} />
+       <div className="flex-1 p-6 space-y-6">
+-        {/* Back Button */}
+-        <Button variant="ghost" onClick={() => router.push('/stations')} className="gap-2">
+-          <ArrowLeft className="w-4 h-4" /> Back to Stations
+-        </Button>
++        <div className="flex items-center justify-between">
++          <Button variant="outline" onClick={() => router.push("/stations")} className="gap-2">
++            <ArrowLeft className="w-4 h-4" /> Back to Stations
++          </Button>
++          <div className="flex items-center gap-2">
++            <Badge variant="outline" className="font-mono font-bold">{station.stationNumber}</Badge>
++            <Badge variant="outline" className={station.ocppConnected ? "border-success text-success" : "border-muted text-muted-foreground"}>
++              {station.ocppConnected ? "OCPP Connected" : "OCPP Disconnected"}
++            </Badge>
++            <Badge variant="outline" className={station.status === "online" ? "border-success text-success" : "border-destructive text-destructive"}>
++              {station.status}
++            </Badge>
++          </div>
++        </div>
+ 
+-        {/* Status Overview */}
+         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+           <Card className="lg:col-span-2">
+             <CardHeader>
+-              <CardTitle className="flex items-center justify-between">
+-                <span>Station Overview</span>
+-                <Badge className={
+-                  station.status === 'online' ? 'bg-success text-success-foreground' :
+-                  station.status === 'offline' ? 'bg-destructive text-destructive-foreground' :
+-                  'bg-warning text-warning-foreground'
+-                }>
+-                  {station.status.toUpperCase()}
+-                </Badge>
+-              </CardTitle>
++              <CardTitle>Live Telemetry</CardTitle>
+             </CardHeader>
+-            <CardContent className="space-y-4">
+-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+-                <div className="p-4 rounded-lg bg-secondary/50">
+-                  <p className="text-sm text-muted-foreground">Location</p>
+-                  <p className="font-medium truncate">{station.location}</p>
+-                </div>
+-                <div className="p-4 rounded-lg bg-secondary/50">
+-                  <p className="text-sm text-muted-foreground">Firmware</p>
+-                  <p className="font-medium">v{station.firmwareVersion}</p>
+-                </div>
+-                <div className="p-4 rounded-lg bg-secondary/50">
+-                  <p className="text-sm text-muted-foreground">Total Energy</p>
+-                  <p className="font-medium">{station.totalEnergy.toLocaleString()} kWh</p>
+-                </div>
+-                <div className="p-4 rounded-lg bg-secondary/50">
+-                  <p className="text-sm text-muted-foreground">Total Revenue</p>
+-                  <p className="font-medium">₹{station.totalRevenue.toLocaleString()}</p>
+-                </div>
++            <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-4">
++              <div className="bg-muted/30 rounded-lg p-3">
++                <p className="text-xs text-muted-foreground">Voltage</p>
++                <p className="text-lg font-semibold font-mono">{telemetry?.voltage ?? "—"}</p>
+               </div>
+-            </CardContent>
+-          </Card>
+-
+-          {/* Temperature */}
+-          <Card>
+-            <CardHeader>
+-              <CardTitle className="flex items-center gap-2">
+-                <Thermometer className="w-5 h-5" />
+-                Temperature
+-              </CardTitle>
+-            </CardHeader>
+-            <CardContent>
+-              <div className="flex items-center justify-center">
+-                <div className={`text-5xl font-bold ${
+-                  station.temperature > 50 ? 'text-destructive' :
+-                  station.temperature > 40 ? 'text-warning' :
+-                  'text-success'
+-                }`}>
+-                  {station.temperature}°C
+-                </div>
++              <div className="bg-muted/30 rounded-lg p-3">
++                <p className="text-xs text-muted-foreground">Current</p>
++                <p className="text-lg font-semibold font-mono">{telemetry?.current ?? "—"}</p>
+               </div>
+-              <p className="text-center text-sm text-muted-foreground mt-2">
+-                {station.temperature > 50 ? 'Critical' :
+-                 station.temperature > 40 ? 'Elevated' :
+-                 'Normal'}
+-              </p>
+-            </CardContent>
+-          </Card>
+-        </div>
+-
+-        {/* Component Status */}
+-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+-          <Card>
+-            <CardHeader>
+-              <CardTitle className="flex items-center gap-2 text-base">
+-                <Disc className="w-5 h-5" />
+-                Charging Coil
+-              </CardTitle>
+-            </CardHeader>
+-            <CardContent>
+-              <div className={`flex items-center gap-3 p-4 rounded-lg border ${getStatusColor(station.coilStatus)}`}>
+-                {getStatusIcon(station.coilStatus)}
+-                <span className="font-medium capitalize">{station.coilStatus}</span>
++              <div className="bg-muted/30 rounded-lg p-3">
++                <p className="text-xs text-muted-foreground">Power (kW)</p>
++                <p className="text-lg font-semibold font-mono">{telemetry?.power ?? "—"}</p>
+               </div>
+-            </CardContent>
+-          </Card>
+-
+-          <Card>
+-            <CardHeader>
+-              <CardTitle className="flex items-center gap-2 text-base">
+-                <Radio className="w-5 h-5" />
+-                Sensors
+-              </CardTitle>
+-            </CardHeader>
+-            <CardContent>
+-              <div className={`flex items-center gap-3 p-4 rounded-lg border ${getStatusColor(station.sensorStatus)}`}>
+-                {getStatusIcon(station.sensorStatus)}
+-                <span className="font-medium capitalize">{station.sensorStatus}</span>
++              <div className="bg-muted/30 rounded-lg p-3">
++                <p className="text-xs text-muted-foreground">Energy Delivered</p>
++                <p className="text-lg font-semibold font-mono">{telemetry?.energyDelivered ?? "—"}</p>
++              </div>
++              <div className="bg-muted/30 rounded-lg p-3">
++                <p className="text-xs text-muted-foreground">Temperature</p>
++                <p className="text-lg font-semibold font-mono">{telemetry?.temperature ?? "—"}</p>
++              </div>
++              <div className="bg-muted/30 rounded-lg p-3">
++                <p className="text-xs text-muted-foreground">Transaction</p>
++                <p className="text-lg font-semibold font-mono">{telemetry?.transactionId ?? "—"}</p>
+               </div>
+             </CardContent>
+           </Card>
+ 
+           <Card>
+             <CardHeader>
+-              <CardTitle className="flex items-center gap-2 text-base">
+-                <Cpu className="w-5 h-5" />
+-                Power Electronics
+-              </CardTitle>
++              <CardTitle>Connectors</CardTitle>
+             </CardHeader>
+-            <CardContent>
+-              <div className={`flex items-center gap-3 p-4 rounded-lg border ${getStatusColor(station.powerElectronicsStatus)}`}>
+-                {getStatusIcon(station.powerElectronicsStatus)}
+-                <span className="font-medium capitalize">{station.powerElectronicsStatus}</span>
+-              </div>
+-            </CardContent>
+-          </div>
+-        </div>
+-
+-        {/* Health & Diagnostics */}
+-        {(() => {
+-          const health = mockStationHealth.find(h => h.stationId === station.id);
+-          if (!health) return null;
+-          const items = [
+-            { label: 'Alignment System', value: health.alignment, icon: <Target className="w-5 h-5" />, ok: health.alignment === 'ok' },
+-            { label: 'FOD System', value: health.fod, icon: <Search className="w-5 h-5" />, ok: health.fod === 'ok' },
+-            { label: 'Thermal Status', value: health.thermal, icon: <Thermometer className="w-5 h-5" />, ok: health.thermal === 'normal' },
+-            { label: 'Communication', value: health.communication, icon: <Wifi className="w-5 h-5" />, ok: health.communication === 'online' },
+-          ];
+-          return (
+-            <Card>
+-              <CardHeader>
+-                <CardTitle className="flex items-center gap-2">
+-                  <Shield className="w-5 h-5" />
+-                  Health & Diagnostics
+-                </CardTitle>
+-              </CardHeader>
+-              <CardContent className="space-y-4">
+-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+-                  {items.map(item => (
+-                    <div key={item.label} className={`flex items-center gap-3 p-4 rounded-lg border ${item.ok ? 'bg-success/10 border-success/20' : 'bg-destructive/10 border-destructive/20'}`}>
+-                      {item.icon}
+-                      <div>
+-                        <p className="text-xs text-muted-foreground">{item.label}</p>
+-                        <p className={`font-medium capitalize ${item.ok ? 'text-success' : 'text-destructive'}`}>
+-                          {item.ok ? (item.label === 'FOD System' || item.label === 'Alignment System' ? 'OK' : item.value) : (item.label === 'FOD System' || item.label === 'Alignment System' ? 'Fault' : item.value)}
+-                        </p>
+-                      </div>
++            <CardContent className="space-y-2">
++              {connectors.length === 0 ? (
++                <div className="text-sm text-muted-foreground">No connector status yet.</div>
++              ) : (
++                connectors.map((c: any) => (
++                  <div key={String(c.connectorId)} className="flex items-center justify-between">
++                    <span className="text-sm text-muted-foreground">#{c.connectorId}</span>
++                    <div className="flex items-center gap-2">
++                      <Badge variant="outline">{c.status || "Unknown"}</Badge>
++                      {c.errorCode && c.errorCode !== "NoError" ? (
++                        <Badge variant="outline" className="border-destructive text-destructive">{c.errorCode}</Badge>
++                      ) : null}
+                     </div>
+-                  ))}
+-                </div>
+-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+-                  <div className="p-4 rounded-lg bg-secondary/50">
+-                    <p className="text-sm text-muted-foreground">Last Fault Time</p>
+-                    <p className="font-medium">{health.lastFaultTime ? format(new Date(health.lastFaultTime), 'MMM dd, HH:mm') : 'No faults recorded'}</p>
+-                  </div>
+-                  <div className="p-4 rounded-lg bg-secondary/50">
+-                    <p className="text-sm text-muted-foreground">Last Maintenance Action</p>
+-                    <p className="font-medium">{health.lastMaintenanceAction || 'None'}</p>
+                   </div>
+-                </div>
+-              </CardContent>
+-            </Card>
+-          );
+-        })()}
+-
+-        {/* Controls */}
+-        <Card>
+-          <CardHeader>
+-            <CardTitle>Station Controls</CardTitle>
+-          </CardHeader>
+-          <CardContent>
+-            <div className="flex flex-wrap gap-4">
+-              <Button onClick={handleRestart} className="gap-2">
+-                <RefreshCw className="w-4 h-4" />
+-                Restart Station
+-              </Button>
+-              <Button onClick={handleDisableCharging} variant="outline" className="gap-2">
+-                <PowerOff className="w-4 h-4" />
+-                Disable Charging
+-              </Button>
+-              <Button onClick={handleFirmwareUpdate} variant="secondary" className="gap-2">
+-                <Download className="w-4 h-4" />
+-                Push Firmware Update
+-              </Button>
+-            </div>
+-          </CardContent>
+-        </Card>
++                ))
++              )}
++            </CardContent>
++          </Card>
++        </div>
+       </div>
+     </div>
+   );
+ }
++
+
+
+===== app/(dashboard)/stations/page.tsx =====
+diff --git a/app/(dashboard)/stations/page.tsx b/app/(dashboard)/stations/page.tsx
+index 1413969..adbe8e6 100644
+--- a/app/(dashboard)/stations/page.tsx
++++ b/app/(dashboard)/stations/page.tsx
+@@ -1,6 +1,6 @@
+ "use client";
+ 
+-import { useState, useEffect } from 'react';
++import { useMemo } from 'react';
+ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { DashboardHeader } from '@/components/layout/DashboardHeader';
+@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
+ import { Progress } from '@/components/ui/progress';
+ import { getStations, deleteStation, getImageUrl } from '@/services/api';
+ import { AddStationModal } from '@/components/dashboard/AddStationModal';
++import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+ 
+ export interface StationData {
+   _id: string;
+@@ -27,6 +28,7 @@ export interface StationData {
+   ports?: number;
+   health?: number;
+   image?: string;
++  ocppConnected?: boolean;
+   basePricePerKwh?: number;
+   dynamicPricing?: {startTime: string, endTime: string, pricePerKwh: number}[];
+   convenienceFee?: number;
+@@ -35,34 +37,39 @@ export interface StationData {
+ 
+ 
+ export default function StationsPage() {
+-  const [stations, setStations] = useState<StationData[]>([]);
+   const { toast } = useToast();
+   const router = useRouter();
++  const queryClient = useQueryClient();
+ 
+-  useEffect(() => {
+-    fetchStations();
+-  }, []);
++  const stationsQuery = useQuery({
++    queryKey: ["stations"],
++    queryFn: getStations,
++    staleTime: 0,
++  });
+ 
+-  const fetchStations = async () => {
+-    try {
+-      const data = await getStations();
+-      setStations(data);
+-    } catch (err) {
+-      console.error(err);
+-      toast({ title: "Error", description: "Could not load stations", variant: "destructive" });
+-    }
+-  };
++  useQuery({
++    queryKey: ["liveTelemetry"],
++    queryFn: async () => ({}),
++    initialData: {},
++    staleTime: Infinity,
++  });
+ 
+-  const handleDeleteStation = async (id: string) => {
+-    if (window.confirm("Are you sure you want to remove this station?")) {
+-      try {
+-        await deleteStation(id);
+-        toast({ title: "Success", description: "Station removed successfully" });
+-        fetchStations();
+-      } catch (err: any) {
+-        toast({ title: "Error", description: err.message || "Failed to remove station", variant: "destructive" });
+-      }
+-    }
++  const telemetry = (queryClient.getQueryData(["liveTelemetry"]) || {}) as Record<string, any>;
++
++  const deleteMutation = useMutation({
++    mutationFn: deleteStation,
++    onSuccess: () => {
++      queryClient.invalidateQueries({ queryKey: ["stations"] });
++      toast({ title: "Success", description: "Station removed successfully" });
++    },
++    onError: (err: any) => {
++      toast({ title: "Error", description: err?.message || "Failed to remove station", variant: "destructive" });
++    },
++  });
++
++  const handleDeleteStation = (id: string) => {
++    if (!window.confirm("Are you sure you want to remove this station?")) return;
++    deleteMutation.mutate(id);
+   };
+ 
+   const getStatusColor = (status: string) => {
+@@ -102,9 +109,15 @@ export default function StationsPage() {
+     return { price, isPeak };
+   };
+ 
+-  const onlineCount = stations.filter(s => s.status === 'online').length;
+-  const offlineCount = stations.filter(s => s.status === 'offline').length;
+-  const maintenanceCount = stations.filter(s => s.status === 'maintenance').length;
++  const stations = (stationsQuery.data || []) as StationData[];
++
++  const counts = useMemo(() => {
++    return {
++      online: stations.filter((s) => s.status === "online").length,
++      offline: stations.filter((s) => s.status === "offline").length,
++      maintenance: stations.filter((s) => s.status === "maintenance").length,
++    };
++  }, [stations]);
+ 
+   return (
+     <div className="flex flex-col min-h-screen">
+@@ -116,7 +129,7 @@ export default function StationsPage() {
+       <div className="flex-1 p-6 space-y-6">
+         <div className="flex justify-end">
+           <AddStationModal 
+-            onStationAdded={fetchStations}
++            onStationAdded={() => queryClient.invalidateQueries({ queryKey: ["stations"] })}
+             customTrigger={<Button><Plus className="w-4 h-4 mr-2"/> Add Station</Button>}
+           />
+         </div>
+@@ -125,19 +138,19 @@ export default function StationsPage() {
+           <Card>
+             <CardContent className="flex items-center gap-4 p-4">
+               <div className="p-3 rounded-xl bg-success/10"><Power className="w-6 h-6 text-success" /></div>
+-              <div><p className="text-sm text-muted-foreground">Online</p><p className="text-2xl font-bold">{onlineCount}</p></div>
++              <div><p className="text-sm text-muted-foreground">Online</p><p className="text-2xl font-bold">{counts.online}</p></div>
+             </CardContent>
+           </Card>
+           <Card>
+             <CardContent className="flex items-center gap-4 p-4">
+               <div className="p-3 rounded-xl bg-destructive/10"><PowerOff className="w-6 h-6 text-destructive" /></div>
+-              <div><p className="text-sm text-muted-foreground">Offline</p><p className="text-2xl font-bold">{offlineCount}</p></div>
++              <div><p className="text-sm text-muted-foreground">Offline</p><p className="text-2xl font-bold">{counts.offline}</p></div>
+             </CardContent>
+           </Card>
+           <Card>
+             <CardContent className="flex items-center gap-4 p-4">
+               <div className="p-3 rounded-xl bg-warning/10"><Wrench className="w-6 h-6 text-warning" /></div>
+-              <div><p className="text-sm text-muted-foreground">Maintenance</p><p className="text-2xl font-bold">{maintenanceCount}</p></div>
++              <div><p className="text-sm text-muted-foreground">Maintenance</p><p className="text-2xl font-bold">{counts.maintenance}</p></div>
+             </CardContent>
+           </Card>
+         </div>
+@@ -145,7 +158,12 @@ export default function StationsPage() {
+         <Card>
+           <CardHeader><CardTitle>My Stations</CardTitle></CardHeader>
+           <CardContent>
+-            {stations.length === 0 ? (
++            {stationsQuery.isLoading ? (
++              <div className="p-8">
++                <div className="h-6 w-48 bg-muted rounded-md animate-pulse mb-3" />
++                <div className="h-10 w-full bg-muted rounded-md animate-pulse" />
++              </div>
++            ) : stations.length === 0 ? (
+               <div className="p-8 text-center text-muted-foreground">No stations found. Click "Add Station" to create one.</div>
+             ) : (
+             <Table>
+@@ -155,8 +173,12 @@ export default function StationsPage() {
+                   <TableHead>Station No.</TableHead>
+                   <TableHead>Station Name</TableHead>
+                   <TableHead className="hidden md:table-cell">Location</TableHead>
++                  <TableHead className="hidden lg:table-cell">Connectors</TableHead>
+                   <TableHead>Power (kW)</TableHead>
++                  <TableHead className="hidden lg:table-cell">Live (kW)</TableHead>
++                  <TableHead className="hidden lg:table-cell">Temp (°C)</TableHead>
+                   <TableHead>Current Rate</TableHead>
++                  <TableHead className="hidden md:table-cell">OCPP</TableHead>
+                   <TableHead>Status</TableHead>
+                   <TableHead className="hidden sm:table-cell">Health</TableHead>
+                   <TableHead className="text-right">Actions</TableHead>
+@@ -164,6 +186,9 @@ export default function StationsPage() {
+               </TableHeader>
+               <TableBody>
+                 {stations.map((station) => (
++                  (() => {
++                    const t = telemetry?.[station._id];
++                    return (
+                   <TableRow key={station._id}>
+                     {/* Image Thumbnail */}
+                     <TableCell>
+@@ -174,7 +199,7 @@ export default function StationsPage() {
+                             alt={station.name}
+                             className="w-full h-full object-cover transition-transform group-hover:scale-110"
+                             onError={(e) => {
+-                              (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1593941707882-a5bba14938c7?auto=format&fit=crop&q=80&w=200";
++                              (e.target as HTMLImageElement).src = "/placeholder.svg";
+                             }}
+                           />
+                         </div>
+@@ -198,7 +223,18 @@ export default function StationsPage() {
+                         <span className="truncate max-w-[200px]">{station.location}</span>
+                       </div>
+                     </TableCell>
++                    <TableCell className="hidden lg:table-cell">
++                      <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
++                        {station.ports || 1}
++                      </Badge>
++                    </TableCell>
+                     <TableCell>{station.powerOutput || 0} kW</TableCell>
++                    <TableCell className="hidden lg:table-cell">
++                      <span className="font-mono text-sm">{t?.power ? Number(t.power).toFixed(2) : "—"}</span>
++                    </TableCell>
++                    <TableCell className="hidden lg:table-cell">
++                      <span className="font-mono text-sm">{t?.temperature ?? "—"}</span>
++                    </TableCell>
+                     <TableCell>
+                       {(() => {
+                         const { price, isPeak } = getCurrentRate(station);
+@@ -212,6 +248,11 @@ export default function StationsPage() {
+                         );
+                       })()}
+                     </TableCell>
++                    <TableCell className="hidden md:table-cell">
++                      <Badge variant="outline" className={station.ocppConnected ? "border-success text-success" : "border-muted text-muted-foreground"}>
++                        {station.ocppConnected ? "Connected" : "Disconnected"}
++                      </Badge>
++                    </TableCell>
+                     <TableCell>
+                       <Badge className={getStatusColor(station.status)}>{station.status}</Badge>
+                     </TableCell>
+@@ -235,7 +276,7 @@ export default function StationsPage() {
+                           
+                           <AddStationModal 
+                             editingStation={station}
+-                            onStationAdded={fetchStations}
++                            onStationAdded={() => queryClient.invalidateQueries({ queryKey: ["stations"] })}
+                             customTrigger={
+                               <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="flex items-center gap-2">
+                                 <Edit className="w-4 h-4" /> Update
+@@ -253,6 +294,8 @@ export default function StationsPage() {
+                       </DropdownMenu>
+                     </TableCell>
+                   </TableRow>
++                    );
++                  })()
+                 ))}
+               </TableBody>
+             </Table>
+
+
+===== backend/controllers/authController.js =====
+diff --git a/backend/controllers/authController.js b/backend/controllers/authController.js
+index c413326..d001ddc 100644
+--- a/backend/controllers/authController.js
++++ b/backend/controllers/authController.js
+@@ -1,30 +1,5 @@
+ import jwt from 'jsonwebtoken';
+ import User from '../models/User.js';
+-import fs from 'fs';
+-import path from 'path';
+-import { fileURLToPath } from 'url';
+-
+-const __filename = fileURLToPath(import.meta.url);
+-const __dirname = path.dirname(__filename);
+-const USERS_FILE = path.join(__dirname, '../data/users.json');
+-
+-const readMockUsers = () => {
+-    try {
+-        if (!fs.existsSync(USERS_FILE)) return [];
+-        return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+-    } catch (err) {
+-        console.error("Error reading mock users:", err);
+-        return [];
+-    }
+-};
+-
+-const writeMockUsers = (users) => {
+-    try {
+-        fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+-    } catch (err) {
+-        console.error("Error writing mock users:", err);
+-    }
+-};
+ 
+ const generateToken = (id) => {
+     return jwt.sign({ id }, process.env.JWT_SECRET || 'fallback_secret', { expiresIn: '7d' });
+@@ -45,40 +20,18 @@ export const registerUser = async (req, res) => {
+             return res.status(400).json({ error: "PIN must be exactly 6 digits" });
+         }
+ 
+-        // Check if DB is connected
+-        const isDbConnected = User.db.readyState === 1;
+-
+-        if (isDbConnected) {
+-            const userExists = await User.findOne({ $or: [{ email }, { mobile }] });
+-            if (userExists) {
+-                return res.status(400).json({ error: "User already exists with this email or mobile" });
+-            }
++        const userExists = await User.findOne({ $or: [{ email }, { mobile }] });
++        if (userExists) {
++            return res.status(400).json({ error: "User already exists with this email or mobile" });
++        }
+ 
+-            const user = new User({ name, email, password, mobile });
+-            await user.save();
++        const user = new User({ name, email, password, mobile });
++        await user.save();
+ 
+-            return res.status(201).json({ 
+-                message: "Registration successful. You can now login.",
+-                user: { id: user._id, name: user.name, email: user.email, mobile: user.mobile }
+-            });
+-        } else {
+-            // Mock mode registration with file persistence
+-            const mockUsers = readMockUsers();
+-            const userExists = mockUsers.find(u => u.email === email || u.mobile === mobile);
+-            if (userExists) {
+-                return res.status(400).json({ error: "User already exists in mock mode" });
+-            }
+-
+-            const newUser = { _id: Date.now().toString(), name, email, password, mobile };
+-            mockUsers.push(newUser);
+-            writeMockUsers(mockUsers);
+-            console.log(`✅ User registered (MOCK PERSISTENT): ${email}`);
+-
+-            return res.status(201).json({ 
+-                message: "Registration successful. You can now login.",
+-                user: { id: newUser._id, name: newUser.name, email: newUser.email, mobile: newUser.mobile }
+-            });
+-        }
++        return res.status(201).json({ 
++            message: "Registration successful. You can now login.",
++            user: { id: user._id, name: user.name, email: user.email, mobile: user.mobile }
++        });
+     } catch (err) {
+         console.error("Register Error:", err);
+         res.status(500).json({ error: err.message });
+@@ -88,26 +41,12 @@ export const registerUser = async (req, res) => {
+ export const loginUser = async (req, res) => {
+     try {
+         const { email, password } = req.body;
+-        const isDbConnected = User.db.readyState === 1;
+-
+-        if (isDbConnected) {
+-            const user = await User.findOne({ email });
+-            if (user && (await user.comparePassword(password))) {
+-                return res.status(200).json({
+-                    _id: user._id, name: user.name, email: user.email, mobile: user.mobile,
+-                    token: generateToken(user._id),
+-                });
+-            }
+-        } else {
+-            // Mock mode login with file persistence
+-            const mockUsers = readMockUsers();
+-            const user = mockUsers.find(u => u.email === email && u.password === password);
+-            if (user) {
+-                return res.status(200).json({
+-                    _id: user._id, name: user.name, email: user.email, mobile: user.mobile,
+-                    token: generateToken(user._id),
+-                });
+-            }
++        const user = await User.findOne({ email });
++        if (user && (await user.comparePassword(password))) {
++            return res.status(200).json({
++                _id: user._id, name: user.name, email: user.email, mobile: user.mobile,
++                token: generateToken(user._id),
++            });
+         }
+         res.status(400).json({ error: "Invalid credentials" });
+     } catch (err) {
+
+
+===== backend/controllers/faultController.js =====
+diff --git a/backend/controllers/faultController.js b/backend/controllers/faultController.js
+index 00bf657..baafac3 100644
+--- a/backend/controllers/faultController.js
++++ b/backend/controllers/faultController.js
+@@ -1,4 +1,5 @@
+ import Fault from '../models/Fault.js';
++import Station from "../models/Station.js";
+ 
+ export const createFault = async (req, res) => {
+     try {
+@@ -23,17 +24,24 @@ export const createFault = async (req, res) => {
+ 
+ export const getFaults = async (req, res) => {
+     try {
+-        const isDbConnected = Fault.db.readyState === 1;
+-        if (isDbConnected) {
+-            const faults = await Fault.find({ userId: req.user.id }).populate('stationId').sort({ createdAt: -1 });
+-            res.json(faults);
+-        } else {
+-            // Mock data for faults
+-            res.json([
+-                { _id: 'f1', stationId: { name: 'Office Park Station' }, type: 'overheat', severity: 'high', message: 'Simulated Fault: overheat', status: 'active', createdAt: new Date() },
+-                { _id: 'f2', stationId: { name: 'Airport Terminal 1' }, type: 'system error', severity: 'medium', message: 'Simulated Fault: system error', status: 'active', createdAt: new Date() },
+-            ]);
+-        }
++        const stations = await Station.find({ userId: req.user.id }).select("_id");
++        const stationIds = stations.map((s) => s._id);
++        const faults = await Fault.find({ stationId: { $in: stationIds } })
++            .populate("stationId")
++            .sort({ createdAt: -1 });
++        res.json(faults);
++    } catch (err) {
++        res.status(500).json({ error: err.message });
++    }
++};
++
++export const getFaultById = async (req, res) => {
++    try {
++        const stations = await Station.find({ userId: req.user.id }).select("_id");
++        const stationIds = stations.map((s) => s._id);
++        const fault = await Fault.findOne({ _id: req.params.id, stationId: { $in: stationIds } }).populate("stationId");
++        if (!fault) return res.status(404).json({ error: "Fault not found" });
++        res.json(fault);
+     } catch (err) {
+         res.status(500).json({ error: err.message });
+     }
+
+
+===== backend/controllers/sessionController.js =====
+diff --git a/backend/controllers/sessionController.js b/backend/controllers/sessionController.js
+index f849e26..bb91fc1 100644
+--- a/backend/controllers/sessionController.js
++++ b/backend/controllers/sessionController.js
+@@ -1,35 +1,42 @@
+-import Session from '../models/Session.js';
+ import Station from '../models/Station.js';
++import Transaction from "../models/Transaction.js";
++import Telemetry from "../models/Telemetry.js";
++
++const calculateCurrentRate = (station, at = new Date()) => {
++    let pricePerKwh = station?.basePricePerKwh || 0;
++    if (station?.dynamicPricing?.length) {
++        const hh = String(at.getHours()).padStart(2, "0");
++        const mm = String(at.getMinutes()).padStart(2, "0");
++        const t = `${hh}:${mm}`;
++        for (const rule of station.dynamicPricing) {
++            if (rule?.startTime && rule?.endTime && t >= rule.startTime && t <= rule.endTime) {
++                pricePerKwh = rule.pricePerKwh;
++                break;
++            }
++        }
++    }
++    const convenienceFee = station?.convenienceFee || 0;
++    const tax = station?.tax || 0;
++    return { pricePerKwh, convenienceFee, tax };
++};
+ 
+ export const startSession = async (req, res) => {
+     try {
+         const { stationId } = req.body;
+         if (!stationId) return res.status(400).json({ error: "stationId is required" });
+ 
+-        const session = new Session({
+-            stationId,
+-            userId: req.user.id,
+-            startTime: new Date(),
+-            status: "active",
+-            energyUsed: 0,
+-            cost: 0
+-        });
+-
+-        await session.save();
+-
+-        // 1. Get the station details
+         const station = await Station.findById(stationId);
+-        if (station && req.mqttService) {
+-            // 2. Notify the station via MQTT
+-            req.mqttService.publish(`stations/${station.stationNumber}/command`, {
+-                action: "start_charging",
+-                sessionId: session._id,
+-                timestamp: new Date()
+-            });
+-            console.log(`🔌 [MQTT] Start command sent to station: ${station.stationNumber}`);
++        if (!station) return res.status(404).json({ error: "Station not found" });
++
++        const ocpp = req.ocppCentralSystem;
++        if (!ocpp) return res.status(500).json({ error: "OCPP Central System not available" });
++        if (!ocpp.isConnected(station.stationNumber)) {
++            return res.status(409).json({ error: "Station not connected via OCPP" });
+         }
+ 
+-        res.status(201).json(session);
++        const idTag = `user:${req.user.id}`;
++        const result = await ocpp.sendCall(station.stationNumber, "RemoteStartTransaction", { connectorId: 1, idTag });
++        res.status(201).json({ status: "accepted", stationId: station._id, stationNumber: station.stationNumber, result });
+     } catch (err) {
+         res.status(500).json({ error: err.message });
+     }
+@@ -38,60 +45,22 @@ export const startSession = async (req, res) => {
+ export const stopSession = async (req, res) => {
+     try {
+         const { id } = req.params; // sessionId
+-        const session = await Session.findById(id);
+-
+-        if (!session) return res.status(404).json({ error: "Session not found" });
+-        if (session.status === "completed") return res.status(400).json({ error: "Session already completed" });
+-
+-        session.endTime = new Date();
+-        session.status = "completed";
++        const query = id?.length === 24 ? { _id: id } : { ocppTransactionId: Number(id) };
++        const tx = await Transaction.findOne(query).populate("stationId");
++        if (!tx) return res.status(404).json({ error: "Transaction not found" });
++        if (tx.status === "completed") return res.status(400).json({ error: "Transaction already completed" });
+ 
+-        const station = await Station.findById(session.stationId);
+-        
+-        const durationHours = (session.endTime - session.startTime) / (1000 * 60 * 60);
+-        
+-        let powerOutput = station && station.powerOutput ? station.powerOutput : 50;
+-        if (session.energyUsed === 0 && durationHours > 0) {
+-            session.energyUsed = Math.max(durationHours * powerOutput, 0.5);
+-        }
++        const station = tx.stationId;
++        const ocpp = req.ocppCentralSystem;
++        if (!ocpp) return res.status(500).json({ error: "OCPP Central System not available" });
++        if (!ocpp.isConnected(tx.stationNumber)) return res.status(409).json({ error: "Station not connected via OCPP" });
+ 
+-        let pricePerKwh = station?.basePricePerKwh || 15; // default ₹15 if not set
+-        
+-        if (station && station.dynamicPricing && station.dynamicPricing.length > 0) {
+-            const currentHour = session.endTime.getHours();
+-            const currentMinute = session.endTime.getMinutes();
+-            const currentTimeStr = `${currentHour.toString().padStart(2, '0')}:${currentMinute.toString().padStart(2, '0')}`;
+-
+-            for (let rule of station.dynamicPricing) {
+-                if (rule.startTime && rule.endTime && currentTimeStr >= rule.startTime && currentTimeStr <= rule.endTime) {
+-                    pricePerKwh = rule.pricePerKwh;
+-                    break;
+-                }
+-            }
+-        }
++        const result = await ocpp.sendCall(tx.stationNumber, "RemoteStopTransaction", { transactionId: tx.ocppTransactionId });
+ 
+-        const convenienceFee = station?.convenienceFee || 0;
+-        const tax = station?.tax || 0;
+-
+-        const energyCost = session.energyUsed * pricePerKwh;
+-        session.appliedPrice = pricePerKwh;
+-        session.convenienceFee = convenienceFee;
+-        session.tax = tax;
+-        session.cost = energyCost + convenienceFee + tax;
+-
+-        await session.save();
+-
+-        // Notify the station via MQTT
+-        if (station && req.mqttService) {
+-            req.mqttService.publish(`stations/${station.stationNumber}/command`, {
+-                action: "stop_charging",
+-                sessionId: session._id,
+-                timestamp: new Date()
+-            });
+-            console.log(`🔌 [MQTT] Stop command sent to station: ${station.stationNumber}`);
+-        }
++        tx.stopRequestedAt = new Date();
++        await tx.save();
+ 
+-        res.json(session);
++        res.json({ status: "accepted", transactionId: tx.ocppTransactionId, result });
+     } catch (err) {
+         res.status(500).json({ error: err.message });
+     }
+@@ -99,20 +68,10 @@ export const stopSession = async (req, res) => {
+ 
+ export const getSessions = async (req, res) => {
+     try {
+-        const isDbConnected = Session.db.readyState === 1;
+-        if (isDbConnected) {
+-            const sessions = await Session.find({ userId: req.user.id })
+-                                          .populate('stationId')
+-                                          .sort({ startTime: -1 });
+-            res.json(sessions);
+-        } else {
+-            // Mock data for sessions
+-            res.json([
+-                { _id: 's1', stationId: { name: 'Downtown Plaza Station' }, energyUsed: 45, cost: 675, status: 'completed', startTime: new Date(Date.now() - 86400000) },
+-                { _id: 's2', stationId: { name: 'Mall Parking Level 2' }, energyUsed: 22, cost: 330, status: 'active', startTime: new Date(Date.now() - 3600000) },
+-                { _id: 's3', stationId: { name: 'Airport Terminal 1' }, energyUsed: 120, cost: 1800, status: 'completed', startTime: new Date(Date.now() - 172800000) },
+-            ]);
+-        }
++        const stations = await Station.find({ userId: req.user.id }).select("_id");
++        const stationIds = stations.map((s) => s._id);
++        const transactions = await Transaction.find({ stationId: { $in: stationIds } }).populate("stationId").sort({ startTime: -1 });
++        res.json(transactions);
+     } catch (err) {
+         res.status(500).json({ error: err.message });
+     }
+@@ -120,35 +79,61 @@ export const getSessions = async (req, res) => {
+ 
+ export const getLiveSessions = async (req, res) => {
+     try {
+-        const activeSessions = await Session.find({ userId: req.user.id, status: 'active' }).populate('stationId');
+-        
+-        const liveData = activeSessions.map(session => {
+-            const station = session.stationId;
+-            const durationHrs = (new Date() - new Date(session.startTime)) / (1000 * 60 * 60);
+-            const powerKw = station?.powerOutput || 50;
+-            const energy = (durationHrs * powerKw).toFixed(2);
+-            
+-            // Randomly fluctuate voltage and current slightly for "live" feel
+-            const voltage = 390 + Math.floor(Math.random() * 20); // 390 - 410 V
+-            const current = Math.floor((powerKw * 1000) / voltage);
+-            const temperature = 35 + Math.floor(Math.random() * 15); // 35 - 50 C
+-            
++        const stations = await Station.find({ userId: req.user.id }).select("_id");
++        const stationIds = stations.map((s) => s._id);
++        const active = await Transaction.find({ stationId: { $in: stationIds }, status: "active" }).populate("stationId").sort({ startTime: -1 });
++
++        const stationNumbers = active.map((t) => t.stationNumber);
++        const latestTelemetry = await Telemetry.aggregate([
++            { $match: { stationId: { $in: stationNumbers } } },
++            { $sort: { timestamp: -1 } },
++            { $group: { _id: { stationId: "$stationId", transactionId: "$transactionId" }, doc: { $first: "$$ROOT" } } }
++        ]);
++
++        const telIndex = new Map();
++        for (const row of latestTelemetry) {
++            const key = `${row._id.stationId}:${row._id.transactionId || ""}`;
++            telIndex.set(key, row.doc);
++        }
++
++        const live = active.map((tx) => {
++            const station = tx.stationId;
++            const tel = telIndex.get(`${tx.stationNumber}:${tx.ocppTransactionId}`) || telIndex.get(`${tx.stationNumber}:`);
++            const voltage = tel?.voltage ?? 0;
++            const current = tel?.current ?? 0;
++            const powerOutput = tel?.power ?? 0;
++            const energyDelivered = tel?.energyConsumed ?? tx.energyUsed ?? 0;
++            const temperature = tel?.temperature ?? 0;
++
++            const sessionTimeSeconds = Math.max(Math.floor((Date.now() - new Date(tx.startTime).getTime()) / 1000), 0);
++            const { pricePerKwh, convenienceFee, tax } = calculateCurrentRate(station, new Date());
++            const chargingCost = energyDelivered * pricePerKwh + convenienceFee + tax;
++
++            const connectorStatus = Array.isArray(station?.connectors)
++                ? station.connectors.find((c) => Number(c.connectorId) === Number(tx.connectorId))?.status
++                : undefined;
++
+             return {
+-                id: session._id,
+-                stationNumber: station?.stationNumber || "UNKNOWN",
+-                userVehicleId: `EV-${req.user.id.substring(0, 4).toUpperCase()}`,
++                id: String(tx._id),
++                stationNumber: tx.stationNumber,
++                userVehicleId: tx.idTag,
++                connectorId: tx.connectorId,
++                transactionId: tx.ocppTransactionId,
++                voltage,
++                current,
++                powerOutput,
++                chargingSpeed: powerOutput,
++                energyDelivered,
++                temperature,
++                sessionTimeSeconds,
++                chargingCost,
++                connectorStatus: connectorStatus || "Unknown",
+                 chargingStatus: "Charging",
+-                voltage: voltage,
+-                current: current,
+-                powerOutput: powerKw,
+-                chargingSpeed: powerKw,
+-                energyDelivered: parseFloat(energy),
+-                connectorStatus: "Locked",
+-                temperature: temperature
++                ocppStatus: station?.ocppConnected ? "Connected" : "Disconnected"
+             };
+         });
+ 
+-        res.json(liveData);
++        res.json(live);
+     } catch (err) {
+         res.status(500).json({ error: err.message });
+     }
+
+
+===== backend/controllers/stationController.js =====
+diff --git a/backend/controllers/stationController.js b/backend/controllers/stationController.js
+index ef9d021..7173743 100644
+--- a/backend/controllers/stationController.js
++++ b/backend/controllers/stationController.js
+@@ -1,29 +1,4 @@
+ import Station from '../models/Station.js';
+-import fs from 'fs';
+-import path from 'path';
+-import { fileURLToPath } from 'url';
+-
+-const __filename = fileURLToPath(import.meta.url);
+-const __dirname = path.dirname(__filename);
+-const STATIONS_FILE = path.join(__dirname, '../data/stations.json');
+-
+-const readMockStations = () => {
+-    try {
+-        if (!fs.existsSync(STATIONS_FILE)) return [];
+-        return JSON.parse(fs.readFileSync(STATIONS_FILE, 'utf8'));
+-    } catch (err) {
+-        console.error("Error reading mock stations:", err);
+-        return [];
+-    }
+-};
+-
+-const writeMockStations = (stations) => {
+-    try {
+-        fs.writeFileSync(STATIONS_FILE, JSON.stringify(stations, null, 2));
+-    } catch (err) {
+-        console.error("Error writing mock stations:", err);
+-    }
+-};
+ 
+ // Helper: generate unique 8-digit station number
+ const generateStationNumber = async (pinPrefix) => {
+@@ -50,16 +25,18 @@ const generateStationNumber = async (pinPrefix) => {
+ // @access  Public
+ export const getStations = async (req, res) => {
+     try {
+-        const isDbConnected = Station.db.readyState === 1;
+-        if (isDbConnected) {
+-            const stations = await Station.find({});
+-            res.status(200).json(stations);
+-        } else {
+-            // Only return user-added mock stations from file, removed default mock stations
+-            const mockStationStore = readMockStations();
+-            console.log(`📡 Serving ${mockStationStore.length} mock stations from file`);
+-            res.status(200).json(mockStationStore);
+-        }
++        const stations = await Station.find({ userId: req.user.id }).sort({ createdAt: -1 });
++        res.status(200).json(stations);
++    } catch (err) {
++        res.status(500).json({ error: err.message });
++    }
++};
++
++export const getStationById = async (req, res) => {
++    try {
++        const station = await Station.findOne({ _id: req.params.id, userId: req.user.id });
++        if (!station) return res.status(404).json({ error: "Station not found" });
++        res.status(200).json(station);
+     } catch (err) {
+         res.status(500).json({ error: err.message });
+     }
+@@ -70,19 +47,8 @@ export const getStations = async (req, res) => {
+ // @access  Public
+ export const getDebugStations = async (req, res) => {
+     try {
+-        const isDbConnected = Station.db.readyState === 1;
+-        if (isDbConnected) {
+-            const dbStations = await Station.find({});
+-            // If you want to show ONLY DB stations:
+-            // res.json(dbStations);
+-            // If you want to show BOTH DB and Mock stations (combined):
+-            const mockStations = readMockStations();
+-            const combined = [...dbStations, ...mockStations];
+-            res.json(combined);
+-        } else {
+-            const mockStationStore = readMockStations();
+-            res.json(mockStationStore);
+-        }
++        const stations = await Station.find({}).sort({ createdAt: -1 });
++        res.json(stations);
+     } catch (err) {
+         res.status(500).json({ error: err.message });
+     }
+@@ -96,8 +62,6 @@ export const setStation = async (req, res) => {
+         const { name, location, powerOutput, status, ports, connectorType, basePricePerKwh, dynamicPricing, convenienceFee, tax, districtPin, latitude, longitude, district } = req.body;
+         console.log('📦 Incoming station data:', { name, location, latitude, longitude, powerOutput, ports, districtPin });
+         console.log('📷 File received:', req.file ? req.file.originalname : 'none');
+-        
+-        const isDbConnected = Station.db.readyState === 1;
+ 
+         let parsedDynamicPricing = [];
+         if (dynamicPricing) {
+@@ -121,56 +85,28 @@ export const setStation = async (req, res) => {
+         }
+ 
+         const pinPrefix = districtPin || "000";
++        const stationNumber = await generateStationNumber(pinPrefix);
++        const station = new Station({
++            stationNumber,
++            name,
++            location,
++            district,
++            latitude: latitude ? Number(latitude) : undefined,
++            longitude: longitude ? Number(longitude) : undefined,
++            powerOutput: Number(powerOutput) || 0,
++            ports: Number(ports) || 1,
++            connectorType: connectorType || 'Type 2',
++            image: imageUrl,
++            status: status || 'offline',
++            userId: req.user.id,
++            basePricePerKwh: Number(basePricePerKwh) || 0,
++            dynamicPricing: parsedDynamicPricing,
++            convenienceFee: convFee,
++            tax: Number(tax) || 0,
++        });
+ 
+-        if (isDbConnected) {
+-            const stationNumber = await generateStationNumber(pinPrefix);
+-            const station = new Station({
+-                stationNumber,
+-                name,
+-                location,
+-                district,
+-                latitude: latitude ? Number(latitude) : undefined,
+-                longitude: longitude ? Number(longitude) : undefined,
+-                powerOutput: Number(powerOutput) || 0,
+-                ports: Number(ports) || 1,
+-                connectorType: connectorType || 'Type 2',
+-                image: imageUrl,
+-                status: status || 'online',
+-                userId: req.user.id,
+-                basePricePerKwh: Number(basePricePerKwh) || 0,
+-                dynamicPricing: parsedDynamicPricing,
+-                convenienceFee: convFee,
+-                tax: Number(tax) || 0,
+-            });
+-
+-            await station.save();
+-            console.log('✅ Station saved to MongoDB:', station._id);
+-            res.status(201).json(station);
+-        } else {
+-            // Mock mode: Save to file persistence
+-            const stationNumber = `${pinPrefix}${Math.floor(10000 + Math.random() * 90000)}`;
+-            const mockStationStore = readMockStations();
+-            const newStation = {
+-                _id: Date.now().toString(),
+-                stationNumber,
+-                name,
+-                location,
+-                powerOutput: Number(powerOutput) || 0,
+-                ports: Number(ports) || 1,
+-                image: imageUrl || "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgdmlld0JveD0iMCAwIDUxMiA1MTIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiByeD0iMjU2IiBmaWxsPSJ1cmwoI3BhaW50MF9saW5lYXJfMTI4XzIpIi8+CjxwYXRoIGQ9Ik0zMzYuNSA5NkgxNzUuNUMxNTguMTAxIDk2IDE0NCAxMTAuMTAxIDE0NCAxMjcuNVYzODQuNUMxNDQgNDAxLjg5OSAxNTguMTAxIDQxNiAxNzUuNSA0MTZIMzM2LjVDMzUzLjg5OSA0MTYgMzY4IDQwMS44OTkgMzY4IDM4NC41VjEyNy41QzM2OCAxMTAuMTAxIDM1My44OTkgOTYgMzM2LjUgOTZaIiBmaWxsPSJ3aGl0ZSIvPgo8cGF0aCBkPSJNMjU2IDIzMkwyMjQgMjg4SDI1NkwyMjQgMzQ0TDI4OCAyNTZIMjU2TDI4OCAyMzJMMjU2IDIzMlowIiBmaWxsPSIjMDBBQkZGIi8+CjxwYXRoIGQ9Ik0zODQgMTYwQzQwMi4xMDQgMTYwIDQxNiAxNzQuMjk2IDQxNiAxOTJWMjU2QzQxNiAyODMuNjE0IDQwNC44MDcgMzA4LjYwNyAzODYuNjY3IDMyNi43NzJDMzcwLjE1NCAzNDMuMzA3IDM1My4zMzMgMzUyIDMzNiAzNTJWMzIwQzM0Ny4zMzMgMzIwIDM1OC4xNTQgMzEzLjMwNyAzNjkuNjY3IDI5OS43NzJDMzgwLjgwNyAyODUuNjA3IDM4NCAyNjcuNjE0IDM4NCAyNTZWMzkyQzM4NCAxODUuMjk2IDM3OS4xMDQgMTgwIDM2OCAxODBWMTYwSDM4NFpNMzg0IDE5MkgyODhWMTYwSDM4NFYxOTJaIiBmaWxsPSJ3aGl0ZSIvPgo8ZGVmaW5zPgo8bGluZWFyR3JhZGllbnQgaWQ9InBhaW50MF9saW5lYXJfMTI4XzIiIHgxPSIyNTYiIHkxPSIwIiB4Mj0iMjU2IiB5Mj0iNTEyIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+CjxzdG9wIHN0b3AtY29sb3I9IiMwMEQxRkYiLz4KPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMDA2NkZGIi8+CjwvbGluZWFyR3JhZGllbnQ+CjwvZGVmaW5zPgo8L3N2Zz4K",
+-                status: status || 'online',
+-                userId: req.user.id,
+-                basePricePerKwh: Number(basePricePerKwh) || 0,
+-                dynamicPricing: parsedDynamicPricing,
+-                convenienceFee: convFee,
+-                tax: Number(tax) || 0,
+-                createdAt: new Date()
+-            };
+-            mockStationStore.push(newStation);
+-            writeMockStations(mockStationStore);
+-            console.log('✅ Station saved to Mock Store (Persistent JSON)');
+-            res.status(201).json(newStation);
+-        }
++        await station.save();
++        res.status(201).json(station);
+     } catch (err) {
+         console.error('❌ setStation error:', err.message);
+         res.status(500).json({ error: err.message });
+@@ -255,19 +191,6 @@ export const searchStations = async (req, res) => {
+         if (!query) {
+             return res.status(400).json({ error: "Search query is required" });
+         }
+-        
+-        const isDbConnected = Station.db.readyState === 1;
+-        if (!isDbConnected) {
+-            // Mock fallback
+-            const mockStations = readMockStations();
+-            const lowerQuery = query.toLowerCase();
+-            const results = mockStations.filter(s => 
+-                (s.name && s.name.toLowerCase().includes(lowerQuery)) ||
+-                (s.location && s.location.toLowerCase().includes(lowerQuery)) ||
+-                (s.district && s.district.toLowerCase().includes(lowerQuery))
+-            );
+-            return res.status(200).json(results);
+-        }
+ 
+         const regex = new RegExp(query, 'i');
+         const stations = await Station.find({
+
+
+===== backend/data/stations.json =====
+diff --git a/backend/data/stations.json b/backend/data/stations.json
+deleted file mode 100644
+index 148ec62..0000000
+--- a/backend/data/stations.json
++++ /dev/null
+@@ -1,48 +0,0 @@
+-[
+-  {
+-    "_id": "1778311545078",
+-    "name": "Erode Zeon Charging Hub",
+-    "location": "Reliance Mall, Perundurai Road, Teachers Colony, Erode",
+-    "powerOutput": 50,
+-    "ports": 1,
+-    "image": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgdmlld0JveD0iMCAwIDUxMiA1MTIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiByeD0iMjU2IiBmaWxsPSJ1cmwoI3BhaW50MF9saW5lYXJfMTI4XzIpIi8+CjxwYXRoIGQ9Ik0zMzYuNSA5NkgxNzUuNUMxNTguMTAxIDk2IDE0NCAxMTAuMTAxIDE0NCAxMjcuNVYzODQuNUMxNDQgNDAxLjg5OSAxNTguMTAxIDQxNiAxNzUuNSA0MTZIMzM2LjVDMzUzLjg5OSA0MTYgMzY4IDQwMS44OTkgMzY4IDM4NC41VjEyNy41QzM2OCAxMTAuMTAxIDM1My44OTkgOTYgMzM2LjUgOTZaIiBmaWxsPSJ3aGl0ZSIvPgo8cGF0aCBkPSJNMjU2IDIzMkwyMjQgMjg4SDI1NkwyMjQgMzQ0TDI4OCAyNTZIMjU2TDI4OCAyMzJMMjU2IDIzMlowIiBmaWxsPSIjMDBBQkZGIi8+CjxwYXRoIGQ9Ik0zODQgMTYwQzQwMi4xMDQgMTYwIDQxNiAxNzQuMjk2IDQxNiAxOTJWMjU2QzQxNiAyODMuNjE0IDQwNC44MDcgMzA4LjYwNyAzODYuNjY3IDMyNi43NzJDMzcwLjE1NCAzNDMuMzA3IDM1My4zMzMgMzUyIDMzNiAzNTJWMzIwQzM0Ny4zMzMgMzIwIDM1OC4xNTQgMzEzLjMwNyAzNjkuNjY3IDI5OS43NzJDMzgwLjgwNyAyODUuNjA3IDM4NCAyNjcuNjE0IDM4NCAyNTZWMzkyQzM4NCAxODUuMjk2IDM3OS4xMDQgMTgwIDM2OCAxODBWMTYwSDM4NFpNMzg0IDE5MkgyODhWMTYwSDM4NFYxOTJaIiBmaWxsPSJ3aGl0ZSIvPgo8ZGVmaW5zPgo8bGluZWFyR3JhZGllbnQgaWQ9InBhaW50MF9saW5lYXJfMTI4XzIiIHgxPSIyNTYiIHkxPSIwIiB4Mj0iMjU2IiB5Mj0iNTEyIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+CjxzdG9wIHN0b3AtY29sb3I9IiMwMEQxRkYiLz4KPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMDA2NkZGIi8+CjwvbGluZWFyR3JhZGllbnQ+CjwvZGVmaW5zPgo8L3N2Zz4K",
+-    "status": "online",
+-    "userId": "1778310799693",
+-    "basePricePerKwh": 15,
+-    "dynamicPricing": [],
+-    "convenienceFee": 2,
+-    "tax": 20,
+-    "createdAt": "2026-05-09T07:25:45.078Z"
+-  },
+- 
+-  {
+-    "_id": "1778311967234",
+-    "name": "IOCL - AVT Charging Station",
+-    "location": "PGCH PPM, SH 37, Dharapuram South Erode",
+-    "powerOutput": 22,
+-    "ports": 2,
+-    "image": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgdmlld0JveD0iMCAwIDUxMiA1MTIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiByeD0iMjU2IiBmaWxsPSJ1cmwoI3BhaW50MF9saW5lYXJfMTI4XzIpIi8+CjxwYXRoIGQ9Ik0zMzYuNSA5NkgxNzUuNUMxNTguMTAxIDk2IDE0NCAxMTAuMTAxIDE0NCAxMjcuNVYzODQuNUMxNDQgNDAxLjg5OSAxNTguMTAxIDQxNiAxNzUuNSA0MTZIMzM2LjVDMzUzLjg5OSA0MTYgMzY4IDQwMS44OTkgMzY4IDM4NC41VjEyNy41QzM2OCAxMTAuMTAxIDM1My44OTkgOTYgMzM2LjUgOTZaIiBmaWxsPSJ3aGl0ZSIvPgo8cGF0aCBkPSJNMjU2IDIzMkwyMjQgMjg4SDI1NkwyMjQgMzQ0TDI4OCAyNTZIMjU2TDI4OCAyMzJMMjU2IDIzMlowIiBmaWxsPSIjMDBBQkZGIi8+CjxwYXRoIGQ9Ik0zODQgMTYwQzQwMi4xMDQgMTYwIDQxNiAxNzQuMjk2IDQxNiAxOTJWMjU2QzQxNiAyODMuNjE0IDQwNC44MDcgMzA4LjYwNyAzODYuNjY3IDMyNi43NzJDMzcwLjE1NCAzNDMuMzA3IDM1My4zMzMgMzUyIDMzNiAzNTJWMzIwQzM0Ny4zMzMgMzIwIDM1OC4xNTQgMzEzLjMwNyAzNjkuNjY3IDI5OS43NzJDMzgwLjgwNyAyODUuNjA3IDM4NCAyNjcuNjE0IDM4NCAyNTZWMzkyQzM4NCAxODUuMjk2IDM3OS4xMDQgMTgwIDM2OCAxODBWMTYwSDM4NFpNMzg0IDE5MkgyODhWMTYwSDM4NFYxOTJaIiBmaWxsPSJ3aGl0ZSIvPgo8ZGVmaW5zPgo8bGluZWFyR3JhZGllbnQgaWQ9InBhaW50MF9saW5lYXJfMTI4XzIiIHgxPSIyNTYiIHkxPSIwIiB4Mj0iMjU2IiB5Mj0iNTEyIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+CjxzdG9wIHN0b3AtY29sb3I9IiMwMEQxRkYiLz4KPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMDA2NkZGIi8+CjwvbGluZWFyR3JhZGllbnQ+CjwvZGVmaW5zPgo8L3N2Zz4K",
+-    "status": "online",
+-    "userId": "1778310799693",
+-    "basePricePerKwh": 15,
+-    "dynamicPricing": [],
+-    "convenienceFee": 2,
+-    "tax": 20,
+-    "createdAt": "2026-05-09T07:32:47.234Z"
+-  },
+-  {
+-    "_id": "1778312020829",
+-    "name": "Statiq - CAI Auto Charging Station",
+-    "location": "Showroom Parking 396, Ashokapuram, PS, Bhavani Main Rd, near Devi Mahal Erode",
+-    "powerOutput": 50,
+-    "ports": 1,
+-    "image": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgdmlld0JveD0iMCAwIDUxMiA1MTIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiByeD0iMjU2IiBmaWxsPSJ1cmwoI3BhaW50MF9saW5lYXJfMTI4XzIpIi8+CjxwYXRoIGQ9Ik0zMzYuNSA5NkgxNzUuNUMxNTguMTAxIDk2IDE0NCAxMTAuMTAxIDE0NCAxMjcuNVYzODQuNUMxNDQgNDAxLjg5OSAxNTguMTAxIDQxNiAxNzUuNSA0MTZIMzM2LjVDMzUzLjg5OSA0MTYgMzY4IDQwMS44OTkgMzY4IDM4NC41VjEyNy41QzM2OCAxMTAuMTAxIDM1My44OTkgOTYgMzM2LjUgOTZaIiBmaWxsPSJ3aGl0ZSIvPgo8cGF0aCBkPSJNMjU2IDIzMkwyMjQgMjg4SDI1NkwyMjQgMzQ0TDI4OCAyNTZIMjU2TDI4OCAyMzJMMjU2IDIzMlowIiBmaWxsPSIjMDBBQkZGIi8+CjxwYXRoIGQ9Ik0zODQgMTYwQzQwMi4xMDQgMTYwIDQxNiAxNzQuMjk2IDQxNiAxOTJWMjU2QzQxNiAyODMuNjE0IDQwNC44MDcgMzA4LjYwNyAzODYuNjY3IDMyNi43NzJDMzcwLjE1NCAzNDMuMzA3IDM1My4zMzMgMzUyIDMzNiAzNTJWMzIwQzM0Ny4zMzMgMzIwIDM1OC4xNTQgMzEzLjMwNyAzNjkuNjY3IDI5OS43NzJDMzgwLjgwNyAyODUuNjA3IDM4NCAyNjcuNjE0IDM4NCAyNTZWMzkyQzM4NCAxODUuMjk2IDM3OS4xMDQgMTgwIDM2OCAxODBWMTYwSDM4NFpNMzg0IDE5MkgyODhWMTYwSDM4NFYxOTJaIiBmaWxsPSJ3aGl0ZSIvPgo8ZGVmaW5zPgo8bGluZWFyR3JhZGllbnQgaWQ9InBhaW50MF9saW5lYXJfMTI4XzIiIHgxPSIyNTYiIHkxPSIwIiB4Mj0iMjU2IiB5Mj0iNTEyIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+CjxzdG9wIHN0b3AtY29sb3I9IiMwMEQxRkYiLz4KPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMDA2NkZGIi8+CjwvbGluZWFyR3JhZGllbnQ+CjwvZGVmaW5zPgo8L3N2Zz4K",
+-    "status": "online",
+-    "userId": "1778310799693",
+-    "basePricePerKwh": 15,
+-    "dynamicPricing": [],
+-    "convenienceFee": 2,
+-    "tax": 20,
+-    "createdAt": "2026-05-09T07:33:40.829Z"
+-  }
+-]
+\ No newline at end of file
+
+
+===== backend/data/users.json =====
+diff --git a/backend/data/users.json b/backend/data/users.json
+deleted file mode 100644
+index c48a2b0..0000000
+--- a/backend/data/users.json
++++ /dev/null
+@@ -1,23 +0,0 @@
+-[
+-  {
+-    "_id": "1778310799693",
+-    "name": "Suveda ",
+-    "email": "suvedasathees24@gmail.com",
+-    "password": "654321",
+-    "mobile": "+91944289590"
+-  },
+-  {
+-    "_id": "1778314708009",
+-    "name": "Srimun ",
+-    "email": "itsmesrimun@gmail.com",
+-    "password": "123456",
+-    "mobile": "8667709294"
+-  },
+-  {
+-    "_id": "demo-user-id",
+-    "name": "Demo User",
+-    "email": "demo@example.com",
+-    "password": "password",
+-    "mobile": "0000000000"
+-  }
+-]
+\ No newline at end of file
+
+
+===== backend/middleware/authMiddleware.js =====
+diff --git a/backend/middleware/authMiddleware.js b/backend/middleware/authMiddleware.js
+index 00ed11c..bb186ec 100644
+--- a/backend/middleware/authMiddleware.js
++++ b/backend/middleware/authMiddleware.js
+@@ -14,13 +14,12 @@ export const protect = async (req, res, next) => {
+ 
+             // Get user from the token
+             const isDbConnected = User.db.readyState === 1;
+-            if (isDbConnected && decoded.id.length === 24) {
+-                req.user = await User.findById(decoded.id).select('-password');
+-            } else {
+-                // Mock mode: create a dummy user object from the token ID
+-                req.user = { id: decoded.id };
++            if (!isDbConnected) {
++                return res.status(503).json({ error: "Database not connected" });
+             }
+ 
++            req.user = await User.findById(decoded.id).select('-password');
++
+             if (!req.user) {
+                 return res.status(401).json({ error: 'Not authorized, user not found' });
+             }
+
+
+===== backend/models/Fault.js =====
+diff --git a/backend/models/Fault.js b/backend/models/Fault.js
+index 9b52fcc..9a2d329 100644
+--- a/backend/models/Fault.js
++++ b/backend/models/Fault.js
+@@ -3,12 +3,13 @@ import mongoose from "mongoose";
+ const faultSchema = new mongoose.Schema({
+     stationId: { type: mongoose.Schema.Types.ObjectId, ref: "Station", required: true },
+     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+-    type: { type: String, required: true, enum: ["overheat", "disconnect", "power failure", "system error"] },
++    type: { type: String, required: true, enum: ["overheat", "overvoltage", "disconnect", "emergency stop", "communication failure", "power fault"] },
+     severity: { type: String, enum: ["low", "medium", "high"], default: "low" },
+     message: { type: String },
+     status: { type: String, enum: ["active", "resolved"], default: "active" },
++    raw: { type: mongoose.Schema.Types.Mixed },
+     createdAt: { type: Date, default: Date.now },
+     resolvedAt: { type: Date }
+-});
++}, { collection: "faults_alerts" });
+ 
+-export default mongoose.model("Fault", faultSchema);
+\ No newline at end of file
++export default mongoose.model("Fault", faultSchema);
+
+
+===== backend/models/Station.js =====
+diff --git a/backend/models/Station.js b/backend/models/Station.js
+index bfcceb8..256a513 100644
+--- a/backend/models/Station.js
++++ b/backend/models/Station.js
+@@ -25,6 +25,18 @@ const stationSchema = new mongoose.Schema({
+     
+     // Production/Real-time fields
+     lastSeen: { type: Date },
++    ocppConnected: { type: Boolean, default: false },
++    ocpp: {
++        vendor: String,
++        model: String,
++        firmwareVersion: String
++    },
++    connectors: [{
++        connectorId: Number,
++        status: String,
++        errorCode: String,
++        updatedAt: Date
++    }],
+     faultStatus: { type: String, default: "none" },
+     totalEnergyConsumed: { type: Number, default: 0 },
+     
+@@ -40,4 +52,4 @@ const stationSchema = new mongoose.Schema({
+     }
+ });
+ 
+-export default mongoose.model("Station", stationSchema);
+\ No newline at end of file
++export default mongoose.model("Station", stationSchema);
+
+
+===== backend/models/Telemetry.js =====
+diff --git a/backend/models/Telemetry.js b/backend/models/Telemetry.js
+index 1156828..3a52428 100644
+--- a/backend/models/Telemetry.js
++++ b/backend/models/Telemetry.js
+@@ -2,13 +2,16 @@ import mongoose from "mongoose";
+ 
+ const telemetrySchema = new mongoose.Schema({
+     stationId: { type: String, required: true },
++    stationObjectId: { type: mongoose.Schema.Types.ObjectId, ref: "Station" },
+     sessionId: { type: mongoose.Schema.Types.ObjectId, ref: "Session" },
++    connectorId: Number,
++    transactionId: Number,
+     voltage: Number,
+     current: Number,
+     power: Number,
+     temperature: Number,
+     energyConsumed: Number,
+     timestamp: { type: Date, default: Date.now }
+-});
++}, { collection: "telemetry" });
+ 
+ export default mongoose.model("Telemetry", telemetrySchema);
+
+
+===== backend/models/Transaction.js =====
+diff --git a/backend/models/Transaction.js b/backend/models/Transaction.js
+new file mode 100644
+index 0000000..a6c129b
+--- /dev/null
++++ b/backend/models/Transaction.js
+@@ -0,0 +1,27 @@
++import mongoose from "mongoose";
++
++const transactionSchema = new mongoose.Schema(
++  {
++    stationId: { type: mongoose.Schema.Types.ObjectId, ref: "Station", required: true },
++    stationNumber: { type: String, required: true },
++    connectorId: { type: Number, default: 0 },
++    ocppTransactionId: { type: Number, required: true, index: true },
++    idTag: { type: String, required: true },
++    meterStart: { type: Number, default: 0 },
++    meterStop: { type: Number },
++    startTime: { type: Date, required: true },
++    endTime: { type: Date },
++    status: { type: String, enum: ["active", "completed"], default: "active" },
++    stopRequestedAt: { type: Date },
++    energyUsed: { type: Number },
++    cost: { type: Number },
++    appliedPrice: { type: Number },
++    convenienceFee: { type: Number },
++    tax: { type: Number },
++  },
++  { timestamps: true, collection: "transactions" }
++);
++
++transactionSchema.index({ stationId: 1, ocppTransactionId: 1 }, { unique: true });
++
++export default mongoose.model("Transaction", transactionSchema);
+
+
+===== backend/routes/dashboardRoutes.js =====
+diff --git a/backend/routes/dashboardRoutes.js b/backend/routes/dashboardRoutes.js
+index 8c0edfd..d744b02 100644
+--- a/backend/routes/dashboardRoutes.js
++++ b/backend/routes/dashboardRoutes.js
+@@ -1,65 +1,47 @@
+ import express from "express";
+ import Station from "../models/Station.js";
+-import Session from "../models/Session.js";
+ import Fault from "../models/Fault.js";
++import Transaction from "../models/Transaction.js";
+ import { protect } from "../middleware/authMiddleware.js";
+ 
+ const router = express.Router();
+ 
+ router.get("/kpis", protect, async (req, res) => {
+   try {
+-    const isDbConnected = Station.db.readyState === 1;
+-
+-    if (isDbConnected) {
+-      const userId = req.user.id;
+-      const stations = await Station.find({ userId });
+-      const stationIds = stations.map(s => s._id);
+-
+-      const sessions = await Session.find({ userId });
+-      const faults = await Fault.find({ stationId: { $in: stationIds }, status: 'active' });
+-
+-      const totalRevenue = sessions.reduce((sum, s) => sum + (s.cost || 0), 0);
+-      const totalEnergyCost = sessions.reduce((sum, s) => sum + ((s.energyUsed * (s.appliedPrice || 15)) || 0), 0);
+-      const totalConvenienceFee = sessions.reduce((sum, s) => sum + (s.convenienceFee || 0), 0);
+-      const totalTax = sessions.reduce((sum, s) => sum + (s.tax || 0), 0);
+-
+-      const activeSessions = sessions.filter(s => s.status === 'active').length;
+-      const totalEnergy = sessions.reduce((sum, s) => sum + (s.energyUsed || 0), 0);
+-      const co2Saved = totalEnergy * 0.4 / 1000;
+-      const onlineStations = stations.filter(s => s.status === 'online').length;
+-      const activeFaults = faults.length;
+-
+-      res.json({
+-        totalRevenue,
+-        totalEnergyCost,
+-        totalConvenienceFee,
+-        totalTax,
+-        activeSessions,
+-        totalEnergy: totalEnergy, 
+-        co2Saved,
+-        onlineStations,
+-        totalStations: stations.length,
+-        activeFaults,
+-        maintenanceStations: stations.filter(s => s.status === 'maintenance').length,
+-        idleStations: Math.max(0, onlineStations - activeSessions),
+-      });
+-    } else {
+-      // Return mock data if database is not connected
+-      res.json({
+-        totalRevenue: 1254.50,
+-        totalEnergyCost: 850.20,
+-        totalConvenienceFee: 300.30,
+-        totalTax: 104.00,
+-        activeSessions: 12,
+-        totalEnergy: 45000, 
+-        co2Saved: 18.5,
+-        onlineStations: 8,
+-        totalStations: 10,
+-        activeFaults: 2,
+-        maintenanceStations: 1,
+-        idleStations: 5,
+-      });
+-    }
++    const userId = req.user.id;
++    const stations = await Station.find({ userId });
++    const stationIds = stations.map((s) => s._id);
++
++    const transactions = await Transaction.find({ stationId: { $in: stationIds } });
++    const activeTx = transactions.filter((t) => t.status === "active");
++    const completedTx = transactions.filter((t) => t.status === "completed");
++    const faults = await Fault.find({ stationId: { $in: stationIds }, status: "active" });
++
++    const totalRevenue = completedTx.reduce((sum, t) => sum + (t.cost || 0), 0);
++    const totalEnergyCost = completedTx.reduce((sum, t) => sum + ((t.energyUsed || 0) * (t.appliedPrice || 0)), 0);
++    const totalConvenienceFee = completedTx.reduce((sum, t) => sum + (t.convenienceFee || 0), 0);
++    const totalTax = completedTx.reduce((sum, t) => sum + (t.tax || 0), 0);
++
++    const activeSessions = activeTx.length;
++    const totalEnergy = completedTx.reduce((sum, t) => sum + (t.energyUsed || 0), 0);
++    const co2Saved = totalEnergy * 0.4 / 1000;
++    const onlineStations = stations.filter((s) => s.status === "online").length;
++    const activeFaults = faults.length;
++
++    res.json({
++      totalRevenue,
++      totalEnergyCost,
++      totalConvenienceFee,
++      totalTax,
++      activeSessions,
++      totalEnergy,
++      co2Saved,
++      onlineStations,
++      totalStations: stations.length,
++      activeFaults,
++      maintenanceStations: stations.filter((s) => s.status === "maintenance").length,
++      idleStations: Math.max(0, onlineStations - activeSessions),
++    });
+   } catch (error) {
+     console.error("Dashboard KPI Error:", error);
+     res.status(500).json({ error: "Server Error" });
+
+
+===== backend/routes/faultRoutes.js =====
+diff --git a/backend/routes/faultRoutes.js b/backend/routes/faultRoutes.js
+index 2c6164e..5c7a302 100644
+--- a/backend/routes/faultRoutes.js
++++ b/backend/routes/faultRoutes.js
+@@ -1,11 +1,12 @@
+ import express from "express";
+-import { createFault, getFaults, resolveFault } from "../controllers/faultController.js";
++import { createFault, getFaults, getFaultById, resolveFault } from "../controllers/faultController.js";
+ import { protect } from "../middleware/authMiddleware.js";
+ 
+ const router = express.Router();
+ 
+ // GET all faults for the user's stations
+ router.get("/", protect, getFaults);
++router.get("/:id", protect, getFaultById);
+ 
+ // CREATE a fault
+ router.post("/", protect, createFault);
+@@ -13,4 +14,4 @@ router.post("/", protect, createFault);
+ // RESOLVE a fault
+ router.put("/:id", protect, resolveFault);
+ 
+-export default router;
+\ No newline at end of file
++export default router;
+
+
+===== backend/routes/stationRoutes.js =====
+diff --git a/backend/routes/stationRoutes.js b/backend/routes/stationRoutes.js
+index b621bf1..b6cf172 100644
+--- a/backend/routes/stationRoutes.js
++++ b/backend/routes/stationRoutes.js
+@@ -1,5 +1,5 @@
+ import express from "express";
+-import { getStations, setStation, updateStation, deleteStation, getDebugStations, searchStations } from "../controllers/stationController.js";
++import { getStations, getStationById, setStation, updateStation, deleteStation, getDebugStations, searchStations } from "../controllers/stationController.js";
+ import { protect } from "../middleware/authMiddleware.js";
+ import upload from "../middleware/uploadMiddleware.js";
+ 
+@@ -16,7 +16,8 @@ router.get("/search", searchStations);
+ router.get("/debug", getDebugStations);
+ 
+ router.route("/:id")
++  .get(protect, getStationById)
+   .put(protect, upload.single('image'), updateStation)
+   .delete(protect, deleteStation);
+ 
+-export default router;
+\ No newline at end of file
++export default router;
+
+
+===== backend/server.js =====
+diff --git a/backend/server.js b/backend/server.js
+index 0ec8b3d..5799eb4 100644
+--- a/backend/server.js
++++ b/backend/server.js
+@@ -24,7 +24,7 @@ import { fileURLToPath } from "url";
+ 
+ import http from "http";
+ import { Server } from "socket.io";
+-import MQTTService from "./services/mqttService.js";
++import OcppCentralSystem from "./services/ocppCentralSystem.js";
+ 
+ const __filename = fileURLToPath(import.meta.url);
+ const __dirname = path.dirname(__filename);
+@@ -46,10 +46,6 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
+ console.log("🚀 Server starting...");
+ console.log("MONGO_URI:", process.env.MONGO_URI);
+ 
+-// Initialize MQTT Service
+-const mqttService = new MQTTService(io);
+-mqttService.connect();
+-
+ // Socket.io Room Logic
+ io.on("connection", (socket) => {
+   console.log("🔌 New Client Connected:", socket.id);
+@@ -69,38 +65,22 @@ io.on("connection", (socket) => {
+   });
+ });
+ 
+-// MongoDB Connection (Mocked for environment without local MongoDB)
+-mongoose.set('bufferCommands', false);
+-
+-const connectDB = async () => {
+-  try {
+-    // Attempt connection if URI looks like a real cloud URI, otherwise skip to mock
+-    if (process.env.MONGO_URI && !process.env.MONGO_URI.includes('localhost')) {
+-      await mongoose.connect(process.env.MONGO_URI);
+-      console.log("✅ MongoDB Connected");
+-    } else {
+-      console.log("⚠️ No local MongoDB found. Running in MOCK MODE (No Database Persistence)");
+-    }
+-    
+-    // Start Simulator
+-    import('./simulator.js').then(module => {
+-      module.startSimulation();
+-      console.log("✅ Simulation Started");
+-    });
+-
+-    server.listen(5000, () => {
+-      console.log("🌐 Server running on http://localhost:5000");
+-      console.log("📡 WebSocket and MQTT Ready");
+-    });
+-  } catch (err) {
+-    console.error("❌ MongoDB Connection Error. Starting anyway in MOCK MODE...");
+-    server.listen(5000, () => {
+-      console.log("🌐 Server running on http://localhost:5000");
+-    });
+-  }
+-};
+-
+-connectDB();
++mongoose.set("bufferCommands", false);
++
++const mongoUri = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/ev_chargings";
++
++mongoose.connect(mongoUri).then(
++  () => console.log("✅ MongoDB Connected"),
++  (err) => console.error("❌ MongoDB Connection Error:", err?.message || err)
++);
++
++const ocppCentralSystem = new OcppCentralSystem({ server, io, pathPrefix: "/ocpp" });
++ocppCentralSystem.attach();
++
++server.listen(5000, () => {
++  console.log("🌐 Server running on http://localhost:5000");
++  console.log("📡 Socket.io and OCPP Ready");
++});
+ 
+ app.get("/", (req, res) => {
+   res.send("API Running");
+@@ -111,7 +91,7 @@ app.get("/test", (req, res) => {
+ });
+ 
+ app.use((req, res, next) => {
+-  req.mqttService = mqttService;
++  req.ocppCentralSystem = ocppCentralSystem;
+   next();
+ });
+ 
+@@ -125,4 +105,4 @@ app.use("/api/payments", paymentRoutes);
+ app.use("/api/dashboard", dashboardRoutes);
+ 
+ // Static folder for uploads
+-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+\ No newline at end of file
++app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+
+===== backend/services/mqttService.js =====
+diff --git a/backend/services/mqttService.js b/backend/services/mqttService.js
+deleted file mode 100644
+index 81b9357..0000000
+--- a/backend/services/mqttService.js
++++ /dev/null
+@@ -1,225 +0,0 @@
+-import mqtt from "mqtt";
+-import Telemetry from "../models/Telemetry.js";
+-import Station from "../models/Station.js";
+-import Fault from "../models/Fault.js";
+-
+-class MQTTService {
+-  constructor(io) {
+-    this.io = io;
+-    this.brokerUrl = process.env.MQTT_BROKER_URL || "mqtt://broker.emqx.io";
+-    this.options = {
+-      username: process.env.MQTT_USERNAME,
+-      password: process.env.MQTT_PASSWORD,
+-      reconnectPeriod: 5000,
+-      connectTimeout: 30 * 1000,
+-      clean: true,
+-      clientId: `charge_hub_backend_${Math.random().toString(16).slice(2, 8)}`,
+-    };
+-    this.client = null;
+-    this.heartbeats = new Map(); // stationNumber -> lastSeen Timestamp
+-    this.offlineThreshold = 30000; // 30 seconds
+-  }
+-
+-  connect() {
+-    console.log(`🔌 Attempting MQTT connection to: ${this.brokerUrl}`);
+-    this.client = mqtt.connect(this.brokerUrl, this.options);
+-
+-    this.client.on("connect", () => {
+-      console.log("✅ MQTT Connected Successfully");
+-      this.subscribeToTopics();
+-      this.startHeartbeatMonitor();
+-    });
+-
+-    this.client.on("message", (topic, message) => {
+-      this.handleMessage(topic, message.toString());
+-    });
+-
+-    this.client.on("error", (err) => {
+-      console.error("❌ MQTT Error:", err.message);
+-    });
+-
+-    this.client.on("reconnect", () => {
+-      console.log("🔄 MQTT Reconnecting...");
+-    });
+-
+-  }
+-
+-  publish(topic, message, options = {}) {
+-    if (this.client && this.client.connected) {
+-      const payload = typeof message === 'string' ? message : JSON.stringify(message);
+-      this.client.publish(topic, payload, { qos: 1, ...options });
+-      return true;
+-    }
+-    console.error("❌ MQTT Publish failed: Client not connected");
+-    return false;
+-  }
+-
+-  subscribeToTopics() {
+-    const topics = [
+-      "stations/+/live",
+-      "stations/+/status",
+-      "stations/+/alerts",
+-      "stations/+/heartbeat"
+-    ];
+-
+-    topics.forEach(topic => {
+-      this.client.subscribe(topic, { qos: 1 }, (err) => {
+-        if (!err) {
+-          console.log(`📡 Subscribed to: ${topic}`);
+-        } else {
+-          console.error(`❌ Subscription error for ${topic}:`, err);
+-        }
+-      });
+-    });
+-  }
+-
+-  async handleMessage(topic, payload) {
+-    try {
+-      const topicParts = topic.split("/");
+-      if (topicParts.length < 3) return;
+-
+-      const stationNumber = topicParts[1];
+-      const subTopic = topicParts[2];
+-      
+-      let data;
+-      try {
+-        data = JSON.parse(payload);
+-      } catch (e) {
+-        console.warn(`⚠️ Invalid JSON on topic ${topic}:`, payload);
+-        return;
+-      }
+-
+-      // Update heartbeat on ANY message from the station
+-      this.heartbeats.set(stationNumber, Date.now());
+-
+-      // Production-style logging
+-      // console.log(`📩 [MQTT] ${stationNumber}/${subTopic}:`, data);
+-
+-      const station = await Station.findOne({ stationNumber });
+-      if (!station) {
+-        if (subTopic !== 'heartbeat') {
+-          console.warn(`⚠️ Message for unknown station: ${stationNumber}`);
+-        }
+-        return;
+-      }
+-
+-      // Update lastSeen in DB periodically or on important messages
+-      station.lastSeen = new Date();
+-      if (station.status === 'offline') {
+-        station.status = 'online';
+-        this.io.emit("station_update", { stationId: station._id, status: "online" });
+-      }
+-
+-      switch (subTopic) {
+-        case "live":
+-          await this.handleLiveData(station, data);
+-          break;
+-        case "status":
+-          await this.handleStatusUpdate(station, data);
+-          break;
+-        case "alerts":
+-          await this.handleAlert(station, data);
+-          break;
+-        case "heartbeat":
+-          await station.save();
+-          break;
+-      }
+-    } catch (error) {
+-      console.error("❌ Error processing MQTT message:", error);
+-    }
+-  }
+-
+-  async handleLiveData(station, data) {
+-    // 1. Persist to Telemetry Collection (Production QoS 1 equivalent logic)
+-    const telemetry = new Telemetry({
+-      stationId: station.stationNumber,
+-      voltage: data.voltage,
+-      current: data.current,
+-      power: data.power,
+-      temperature: data.temperature,
+-      energyConsumed: data.energyConsumed,
+-    });
+-    await telemetry.save();
+-
+-    // 2. Update Station Summary
+-    station.totalEnergyConsumed = data.energyConsumed;
+-    await station.save();
+-
+-    // 3. Emit to specific station room (Scalable Socket.io)
+-    const roomName = `station:${station._id}`;
+-    this.io.to(roomName).emit("live_data", {
+-      ...data,
+-      stationId: station._id,
+-      timestamp: new Date(),
+-    });
+-
+-    // 4. Emit to global live view room
+-    this.io.emit("live_updates", {
+-      stationId: station._id,
+-      stationNumber: station.stationNumber,
+-      type: "live",
+-      data,
+-    });
+-  }
+-
+-  async handleStatusUpdate(station, data) {
+-    station.status = data.status || "online";
+-    await station.save();
+-
+-    this.io.emit("station_update", { 
+-      stationId: station._id, 
+-      stationNumber: station.stationNumber,
+-      status: data.status 
+-    });
+-  }
+-
+-  async handleAlert(station, data) {
+-    const validTypes = ["overheat", "disconnect", "power failure", "system error"];
+-    const faultType = validTypes.includes(data.type) ? data.type : "system error";
+-
+-    const fault = new Fault({
+-      stationId: station._id,
+-      type: faultType,
+-      message: data.message || "Hardware Alert",
+-      severity: data.severity || "high",
+-      status: "active",
+-    });
+-    await fault.save();
+-
+-    station.faultStatus = data.type;
+-    await station.save();
+-
+-    this.io.to(`station:${station._id}`).emit("alert", data);
+-    this.io.emit("new_alert", { stationId: station._id, ...data });
+-  }
+-
+-  startHeartbeatMonitor() {
+-    setInterval(async () => {
+-      const now = Date.now();
+-      for (const [stationNumber, lastSeen] of this.heartbeats.entries()) {
+-        if (now - lastSeen > this.offlineThreshold) {
+-          console.log(`📡 Station ${stationNumber} timed out. Marking offline.`);
+-          this.heartbeats.delete(stationNumber);
+-          
+-          try {
+-            const station = await Station.findOne({ stationNumber });
+-            if (station && station.status !== 'offline') {
+-              station.status = 'offline';
+-              await station.save();
+-              
+-              this.io.emit("station_update", { 
+-                stationId: station._id, 
+-                stationNumber: station.stationNumber,
+-                status: "offline" 
+-              });
+-            }
+-          } catch (err) {
+-            console.error("Error updating offline status:", err);
+-          }
+-        }
+-      }
+-    }, 10000); // Check every 10 seconds
+-  }
+-}
+-
+-export default MQTTService;
+
+
+===== backend/services/ocppCentralSystem.js =====
+diff --git a/backend/services/ocppCentralSystem.js b/backend/services/ocppCentralSystem.js
+new file mode 100644
+index 0000000..d4053e2
+--- /dev/null
++++ b/backend/services/ocppCentralSystem.js
+@@ -0,0 +1,485 @@
++import { WebSocketServer } from "ws";
++import { randomUUID } from "crypto";
++import Station from "../models/Station.js";
++import Telemetry from "../models/Telemetry.js";
++import Fault from "../models/Fault.js";
++import Transaction from "../models/Transaction.js";
++
++const toNumber = (value) => {
++  if (value === null || value === undefined) return undefined;
++  const n = Number(value);
++  return Number.isFinite(n) ? n : undefined;
++};
++
++const calculateCurrentRate = (station, at = new Date()) => {
++  let pricePerKwh = station?.basePricePerKwh || 0;
++  if (station?.dynamicPricing?.length) {
++    const hh = String(at.getHours()).padStart(2, "0");
++    const mm = String(at.getMinutes()).padStart(2, "0");
++    const t = `${hh}:${mm}`;
++    for (const rule of station.dynamicPricing) {
++      if (rule?.startTime && rule?.endTime && t >= rule.startTime && t <= rule.endTime) {
++        pricePerKwh = rule.pricePerKwh;
++        break;
++      }
++    }
++  }
++  const convenienceFee = station?.convenienceFee || 0;
++  const tax = station?.tax || 0;
++  return { pricePerKwh, convenienceFee, tax };
++};
++
++const mapOcppErrorToFaultType = (errorCode) => {
++  const key = String(errorCode || "").toLowerCase();
++  if (!key || key === "noerror") return null;
++  if (key.includes("overtemperature")) return "overheat";
++  if (key.includes("overvoltage")) return "overvoltage";
++  if (key.includes("emergencystop")) return "emergency stop";
++  if (key.includes("communicationerror") || key.includes("internalerror")) return "communication failure";
++  if (key.includes("power") || key.includes("powermeterfailure")) return "power fault";
++  if (key.includes("connectorlockfailure") || key.includes("groundfailure")) return "power fault";
++  return "power fault";
++};
++
++export default class OcppCentralSystem {
++  constructor({ server, io, pathPrefix = "/ocpp" }) {
++    this.server = server;
++    this.io = io;
++    this.pathPrefix = pathPrefix;
++    this.wss = new WebSocketServer({ noServer: true });
++    this.connections = new Map(); // chargePointId -> ws
++    this.pending = new Map(); // uniqueId -> { resolve, reject, timeout }
++    this.lastMessageAt = new Map(); // chargePointId -> epoch ms
++    this.offlineThresholdMs = 60000;
++  }
++
++  attach() {
++    setInterval(() => {
++      const now = Date.now();
++      for (const [chargePointId, lastAt] of this.lastMessageAt.entries()) {
++        if (now - lastAt <= this.offlineThresholdMs) continue;
++        const ws = this.connections.get(chargePointId);
++        if (ws && ws.readyState === ws.OPEN) {
++          try {
++            ws.close();
++          } catch {}
++        } else {
++          this.lastMessageAt.delete(chargePointId);
++        }
++      }
++    }, 10000);
++
++    this.server.on("upgrade", (request, socket, head) => {
++      try {
++        const url = new URL(request.url, "http://localhost");
++        if (!url.pathname.startsWith(`${this.pathPrefix}/`)) return;
++
++        const protocols = request.headers["sec-websocket-protocol"];
++        if (protocols && !String(protocols).toLowerCase().includes("ocpp1.6")) {
++          socket.destroy();
++          return;
++        }
++
++        this.wss.handleUpgrade(request, socket, head, (ws) => {
++          this.wss.emit("connection", ws, request);
++        });
++      } catch {
++        socket.destroy();
++      }
++    });
++
++    this.wss.on("connection", (ws, request) => {
++      const url = new URL(request.url, "http://localhost");
++      const chargePointId = decodeURIComponent(url.pathname.slice(`${this.pathPrefix}/`.length));
++
++      if (!chargePointId) {
++        ws.close();
++        return;
++      }
++
++      this.connections.set(chargePointId, ws);
++      this.lastMessageAt.set(chargePointId, Date.now());
++      this.emitOcppStatus(chargePointId, true);
++      this.markStationOnline(chargePointId).catch(() => {});
++
++      ws.on("message", (data) => {
++        this.lastMessageAt.set(chargePointId, Date.now());
++        const raw = data?.toString?.() ?? "";
++        this.onMessage(chargePointId, ws, raw).catch(() => {});
++      });
++
++      ws.on("close", () => {
++        this.connections.delete(chargePointId);
++        this.lastMessageAt.delete(chargePointId);
++        this.emitOcppStatus(chargePointId, false);
++        this.markStationOffline(chargePointId).catch(() => {});
++      });
++
++      ws.on("error", () => {});
++    });
++  }
++
++  isConnected(chargePointId) {
++    const ws = this.connections.get(chargePointId);
++    return Boolean(ws && ws.readyState === ws.OPEN);
++  }
++
++  sendCall(chargePointId, action, payload) {
++    const ws = this.connections.get(chargePointId);
++    if (!ws || ws.readyState !== ws.OPEN) {
++      const err = new Error("Charge point not connected");
++      err.code = "CP_NOT_CONNECTED";
++      throw err;
++    }
++
++    const uniqueId = randomUUID();
++    const message = JSON.stringify([2, uniqueId, action, payload ?? {}]);
++    ws.send(message);
++
++    return new Promise((resolve, reject) => {
++      const timeout = setTimeout(() => {
++        this.pending.delete(uniqueId);
++        reject(new Error("OCPP request timeout"));
++      }, 15000);
++      this.pending.set(uniqueId, { resolve, reject, timeout });
++    });
++  }
++
++  async onMessage(chargePointId, ws, raw) {
++    let msg;
++    try {
++      msg = JSON.parse(raw);
++    } catch {
++      return;
++    }
++    if (!Array.isArray(msg) || msg.length < 3) return;
++
++    const messageTypeId = msg[0];
++    const uniqueId = msg[1];
++
++    if (messageTypeId === 3) {
++      const pending = this.pending.get(uniqueId);
++      if (!pending) return;
++      clearTimeout(pending.timeout);
++      this.pending.delete(uniqueId);
++      pending.resolve(msg[2]);
++      return;
++    }
++
++    if (messageTypeId === 4) {
++      const pending = this.pending.get(uniqueId);
++      if (!pending) return;
++      clearTimeout(pending.timeout);
++      this.pending.delete(uniqueId);
++      const err = new Error(msg[3] || "OCPP error");
++      err.ocpp = { errorCode: msg[2], errorDescription: msg[3], errorDetails: msg[4] };
++      pending.reject(err);
++      return;
++    }
++
++    if (messageTypeId !== 2) return;
++
++    const action = msg[2];
++    const payload = msg[3] || {};
++
++    try {
++      const result = await this.handleCall(chargePointId, action, payload);
++      ws.send(JSON.stringify([3, uniqueId, result ?? {}]));
++    } catch (e) {
++      ws.send(JSON.stringify([4, uniqueId, "InternalError", e?.message || "Internal Error", {}]));
++    }
++  }
++
++  async handleCall(chargePointId, action, payload) {
++    switch (action) {
++      case "BootNotification":
++        await this.onBootNotification(chargePointId, payload);
++        return { status: "Accepted", currentTime: new Date().toISOString(), interval: 30 };
++      case "Heartbeat":
++        await this.onHeartbeat(chargePointId);
++        return { currentTime: new Date().toISOString() };
++      case "StatusNotification":
++        await this.onStatusNotification(chargePointId, payload);
++        return {};
++      case "MeterValues":
++        await this.onMeterValues(chargePointId, payload);
++        return {};
++      case "Authorize":
++        return { idTagInfo: { status: "Accepted" } };
++      case "StartTransaction":
++        return await this.onStartTransaction(chargePointId, payload);
++      case "StopTransaction":
++        return await this.onStopTransaction(chargePointId, payload);
++      default:
++        return {};
++    }
++  }
++
++  async findStation(chargePointId) {
++    return Station.findOne({ stationNumber: chargePointId });
++  }
++
++  async markStationOnline(chargePointId) {
++    const station = await this.findStation(chargePointId);
++    if (!station) return;
++    station.status = "online";
++    station.lastSeen = new Date();
++    station.ocppConnected = true;
++    await station.save();
++    this.io.emit("station_update", { stationId: station._id, stationNumber: station.stationNumber, status: station.status });
++  }
++
++  async markStationOffline(chargePointId) {
++    const station = await this.findStation(chargePointId);
++    if (!station) return;
++    station.status = "offline";
++    station.ocppConnected = false;
++    await station.save();
++    this.io.emit("station_update", { stationId: station._id, stationNumber: station.stationNumber, status: station.status });
++  }
++
++  emitOcppStatus(chargePointId, connected) {
++    this.io.emit("ocpp_status", { stationNumber: chargePointId, connected, timestamp: new Date().toISOString() });
++  }
++
++  async onBootNotification(chargePointId, payload) {
++    const station = await this.findStation(chargePointId);
++    if (!station) return;
++    station.ocpp = {
++      ...station.ocpp,
++      vendor: payload?.chargePointVendor,
++      model: payload?.chargePointModel,
++      firmwareVersion: payload?.firmwareVersion,
++    };
++    station.lastSeen = new Date();
++    station.status = "online";
++    station.ocppConnected = true;
++    await station.save();
++    this.io.emit("station_update", { stationId: station._id, stationNumber: station.stationNumber, status: station.status });
++  }
++
++  async onHeartbeat(chargePointId) {
++    const station = await this.findStation(chargePointId);
++    if (!station) return;
++    station.lastSeen = new Date();
++    if (station.status !== "online") station.status = "online";
++    station.ocppConnected = true;
++    await station.save();
++    this.io.emit("station_update", { stationId: station._id, stationNumber: station.stationNumber, status: station.status });
++  }
++
++  async onStatusNotification(chargePointId, payload) {
++    const station = await this.findStation(chargePointId);
++    if (!station) return;
++
++    const connectorId = toNumber(payload?.connectorId) ?? 0;
++    const status = payload?.status || "Unknown";
++    const errorCode = payload?.errorCode || "NoError";
++
++    station.lastSeen = new Date();
++    station.ocppConnected = true;
++    station.connectors = station.connectors || [];
++
++    const existingIdx = station.connectors.findIndex((c) => Number(c.connectorId) === connectorId);
++    const connector = {
++      connectorId,
++      status,
++      errorCode,
++      updatedAt: new Date(),
++    };
++    if (existingIdx >= 0) station.connectors[existingIdx] = connector;
++    else station.connectors.push(connector);
++
++    const faultType = mapOcppErrorToFaultType(errorCode);
++    if (faultType) {
++      const fault = await Fault.create({
++        stationId: station._id,
++        type: faultType,
++        message: payload?.info || errorCode,
++        severity: "high",
++        status: "active",
++        raw: { errorCode, status, connectorId },
++      });
++      station.faultStatus = faultType;
++      this.io.emit("fault_alert", {
++        stationId: station._id,
++        stationNumber: station.stationNumber,
++        faultId: fault._id,
++        type: fault.type,
++        message: fault.message,
++        severity: fault.severity,
++        createdAt: fault.createdAt,
++      });
++    }
++
++    await station.save();
++
++    this.io.emit("station_update", {
++      stationId: station._id,
++      stationNumber: station.stationNumber,
++      status: station.status,
++      connectorId,
++      connectorStatus: status,
++      errorCode,
++    });
++  }
++
++  extractMeterValues(payload) {
++    const connectorId = toNumber(payload?.connectorId);
++    const transactionId = toNumber(payload?.transactionId);
++
++    const mv = Array.isArray(payload?.meterValue) ? payload.meterValue : [];
++    let timestamp = new Date();
++    let voltage;
++    let current;
++    let power;
++    let temperature;
++    let energyDelivered;
++
++    for (const block of mv) {
++      if (block?.timestamp) timestamp = new Date(block.timestamp);
++      const sampled = Array.isArray(block?.sampledValue) ? block.sampledValue : [];
++      for (const s of sampled) {
++        const meas = String(s?.measurand || "").toLowerCase();
++        const value = toNumber(s?.value);
++        if (value === undefined) continue;
++        if (meas.includes("voltage")) voltage = value;
++        else if (meas.includes("current")) current = value;
++        else if (meas.includes("power")) power = value;
++        else if (meas.includes("temperature")) temperature = value;
++        else if (meas.includes("energy.active.import.register")) energyDelivered = value;
++      }
++    }
++
++    return { connectorId, transactionId, timestamp, voltage, current, power, temperature, energyDelivered };
++  }
++
++  async onMeterValues(chargePointId, payload) {
++    const station = await this.findStation(chargePointId);
++    if (!station) return;
++
++    const data = this.extractMeterValues(payload);
++
++    const telemetry = await Telemetry.create({
++      stationId: station.stationNumber,
++      stationObjectId: station._id,
++      connectorId: data.connectorId,
++      transactionId: data.transactionId,
++      voltage: data.voltage,
++      current: data.current,
++      power: data.power,
++      temperature: data.temperature,
++      energyConsumed: data.energyDelivered,
++      timestamp: data.timestamp,
++    });
++
++    if (data.energyDelivered !== undefined) {
++      station.totalEnergyConsumed = data.energyDelivered;
++    }
++    station.lastSeen = new Date();
++    station.ocppConnected = true;
++    await station.save();
++
++    const eventPayload = {
++      stationId: station._id,
++      stationNumber: station.stationNumber,
++      connectorId: data.connectorId,
++      transactionId: data.transactionId,
++      voltage: data.voltage,
++      current: data.current,
++      power: data.power,
++      temperature: data.temperature,
++      energyDelivered: data.energyDelivered,
++      timestamp: telemetry.timestamp || new Date(),
++    };
++
++    this.io.emit("live_data", eventPayload);
++    this.io.to(`station:${station._id}`).emit("live_data", eventPayload);
++
++    if (data.transactionId !== undefined) {
++      this.io.emit("transaction_update", {
++        stationId: station._id,
++        stationNumber: station.stationNumber,
++        transactionId: data.transactionId,
++        telemetry: eventPayload,
++      });
++    }
++  }
++
++  async onStartTransaction(chargePointId, payload) {
++    const station = await this.findStation(chargePointId);
++    if (!station) return { transactionId: Math.floor(Date.now() / 1000), idTagInfo: { status: "Accepted" } };
++
++    const ocppTransactionId = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000);
++    const connectorId = toNumber(payload?.connectorId) ?? 0;
++    const meterStart = toNumber(payload?.meterStart) ?? 0;
++    const idTag = payload?.idTag || "unknown";
++    const startedAt = payload?.timestamp ? new Date(payload.timestamp) : new Date();
++
++    const tx = await Transaction.create({
++      stationId: station._id,
++      stationNumber: station.stationNumber,
++      connectorId,
++      ocppTransactionId,
++      idTag,
++      meterStart,
++      startTime: startedAt,
++      status: "active",
++    });
++
++    this.io.emit("transaction_update", {
++      stationId: station._id,
++      stationNumber: station.stationNumber,
++      connectorId,
++      transactionId: ocppTransactionId,
++      status: "active",
++      startedAt: tx.startTime,
++      idTag,
++    });
++
++    return { transactionId: ocppTransactionId, idTagInfo: { status: "Accepted" } };
++  }
++
++  async onStopTransaction(chargePointId, payload) {
++    const station = await this.findStation(chargePointId);
++    if (!station) return { idTagInfo: { status: "Accepted" } };
++
++    const ocppTransactionId = toNumber(payload?.transactionId);
++    const meterStop = toNumber(payload?.meterStop);
++    const endedAt = payload?.timestamp ? new Date(payload.timestamp) : new Date();
++
++    const tx = await Transaction.findOne({ stationId: station._id, ocppTransactionId, status: "active" });
++    if (tx) {
++      tx.status = "completed";
++      tx.endTime = endedAt;
++      if (meterStop !== undefined) tx.meterStop = meterStop;
++
++      const meterStart = tx.meterStart || 0;
++      const energyUsed = meterStop !== undefined ? Math.max((meterStop - meterStart) / 1000, 0) : undefined;
++      if (energyUsed !== undefined) tx.energyUsed = energyUsed;
++
++      const { pricePerKwh, convenienceFee, tax } = calculateCurrentRate(station, endedAt);
++      if (energyUsed !== undefined) {
++        tx.appliedPrice = pricePerKwh;
++        tx.convenienceFee = convenienceFee;
++        tx.tax = tax;
++        tx.cost = energyUsed * pricePerKwh + convenienceFee + tax;
++      }
++
++      await tx.save();
++
++      this.io.emit("transaction_update", {
++        stationId: station._id,
++        stationNumber: station.stationNumber,
++        connectorId: tx.connectorId,
++        transactionId: tx.ocppTransactionId,
++        status: "completed",
++        endedAt: tx.endTime,
++        energyUsed: tx.energyUsed,
++        cost: tx.cost,
++      });
++    }
++
++    return { idTagInfo: { status: "Accepted" } };
++  }
++}
+
+
+===== backend/simulator.js =====
+diff --git a/backend/simulator.js b/backend/simulator.js
+deleted file mode 100644
+index 8d2cf1b..0000000
+--- a/backend/simulator.js
++++ /dev/null
+@@ -1,69 +0,0 @@
+-import mongoose from 'mongoose';
+-import Session from './models/Session.js';
+-import Fault from './models/Fault.js';
+-import Station from './models/Station.js';
+-import mqtt from 'mqtt';
+-
+-export const startSimulation = () => {
+-    const brokerUrl = process.env.MQTT_BROKER_URL || "mqtt://broker.emqx.io";
+-    const client = mqtt.connect(brokerUrl);
+-
+-    client.on("connect", () => {
+-        console.log("🤖 Simulator connected to MQTT Broker");
+-    });
+-
+-    // Run simulation loop every 5 seconds
+-    setInterval(async () => {
+-        try {
+-            if (mongoose.connection.readyState !== 1) return;
+-
+-            const activeSessions = await Session.find({ status: 'active' }).populate('stationId');
+-
+-            for (let session of activeSessions) {
+-                if (!session.stationId) continue;
+-                
+-                const stationNumber = session.stationId.stationNumber;
+-
+-                // 1. Publish Heartbeat
+-                client.publish(`stations/${stationNumber}/heartbeat`, JSON.stringify({ tick: Date.now() }));
+-
+-                // 2. Simulate Live Telemetry
+-                const liveData = {
+-                    voltage: 230 + Math.random() * 10,
+-                    current: 16 + Math.random() * 16,
+-                    power: 7 + Math.random() * 43, 
+-                    temperature: 30 + Math.random() * 20,
+-                    energyConsumed: session.energyUsed + 0.069,
+-                    connectorStatus: "locked",
+-                    chargingStatus: "charging",
+-                    chargingSpeed: 7 + Math.random() * 43
+-                };
+-
+-                // Update session energy incrementally for DB
+-                session.energyUsed = liveData.energyConsumed;
+-                session.cost = session.energyUsed * (session.stationId.basePricePerKwh || 15);
+-                await session.save();
+-
+-                // Publish to MQTT (Mimics Raspberry Pi)
+-                client.publish(`stations/${stationNumber}/live`, JSON.stringify(liveData), { qos: 1 });
+-
+-                // Random 1% chance for fault
+-                if (Math.random() < 0.01) {
+-                    const types = ["overheat", "disconnect", "power failure", "system error"];
+-                    const alert = {
+-                        type: types[Math.floor(Math.random() * types.length)],
+-                        severity: Math.random() < 0.2 ? "high" : "medium",
+-                        message: "Hardware malfunction detected by Pi Controller"
+-                    };
+-                    client.publish(`stations/${stationNumber}/alerts`, JSON.stringify(alert), { qos: 1 });
+-                    
+-                    if (alert.severity === "high") {
+-                        client.publish(`stations/${stationNumber}/status`, JSON.stringify({ status: "offline" }), { qos: 1 });
+-                    }
+-                }
+-            }
+-        } catch (err) {
+-            console.error("Simulation Tick Error:", err);
+-        }
+-    }, 5000);
+-};
+
+
+===== components/Providers.tsx =====
+diff --git a/components/Providers.tsx b/components/Providers.tsx
+index b30ec58..3d1029f 100644
+--- a/components/Providers.tsx
++++ b/components/Providers.tsx
+@@ -5,17 +5,20 @@ import { TooltipProvider } from "@/components/ui/tooltip";
+ import { Toaster } from "@/components/ui/toaster";
+ import { Toaster as Sonner } from "@/components/ui/sonner";
+ import { useState } from "react";
++import { RealtimeProvider } from "@/components/RealtimeProvider";
+ 
+ export function Providers({ children }: { children: React.ReactNode }) {
+   const [queryClient] = useState(() => new QueryClient());
+ 
+   return (
+     <QueryClientProvider client={queryClient}>
+-      <TooltipProvider>
+-        {children}
+-        <Toaster />
+-        <Sonner />
+-      </TooltipProvider>
++      <RealtimeProvider>
++        <TooltipProvider>
++          {children}
++          <Toaster />
++          <Sonner />
++        </TooltipProvider>
++      </RealtimeProvider>
+     </QueryClientProvider>
+   );
+ }
+
+
+===== components/RealtimeProvider.tsx =====
+diff --git a/components/RealtimeProvider.tsx b/components/RealtimeProvider.tsx
+new file mode 100644
+index 0000000..947cdc5
+--- /dev/null
++++ b/components/RealtimeProvider.tsx
+@@ -0,0 +1,106 @@
++"use client";
++
++import { createContext, useContext, useEffect, useMemo, useState } from "react";
++import { useQueryClient } from "@tanstack/react-query";
++import { getSocket } from "@/lib/socket";
++
++type RealtimeState = {
++  connected: boolean;
++};
++
++const RealtimeContext = createContext<RealtimeState>({ connected: false });
++
++const upsertStation = (stations: any[], patch: any) => {
++  if (!Array.isArray(stations)) return stations;
++  const idx = stations.findIndex((s) => String(s?._id) === String(patch?.stationId));
++  if (idx === -1) return stations;
++  const next = stations.slice();
++  next[idx] = { ...next[idx], ...patch, _id: next[idx]._id };
++  return next;
++};
++
++export function RealtimeProvider({ children }: { children: React.ReactNode }) {
++  const queryClient = useQueryClient();
++  const socket = useMemo(() => getSocket(), []);
++  const [connected, setConnected] = useState(socket.connected);
++
++  useEffect(() => {
++    const onConnect = () => setConnected(true);
++    const onDisconnect = () => setConnected(false);
++
++    socket.on("connect", onConnect);
++    socket.on("disconnect", onDisconnect);
++
++    const onStationUpdate = (payload: any) => {
++      queryClient.setQueryData(["stations"], (prev: any) => upsertStation(prev as any[], payload));
++      if (payload?.stationId) {
++        queryClient.setQueryData(["station", payload.stationId], (prev: any) => (prev ? { ...prev, ...payload } : prev));
++      }
++    };
++
++    const onOcppStatus = (payload: any) => {
++      queryClient.setQueryData(["ocppStatus"], (prev: any) => ({ ...(prev || {}), [payload.stationNumber]: payload }));
++    };
++
++    const onLiveData = (payload: any) => {
++      if (payload?.stationId) {
++        queryClient.setQueryData(["liveTelemetry"], (prev: any) => ({ ...(prev || {}), [payload.stationId]: payload }));
++      }
++
++      queryClient.setQueryData(["liveSessions"], (prev: any) => {
++        if (!Array.isArray(prev)) return prev;
++        return prev.map((s: any) => {
++          if (payload?.transactionId && s?.transactionId && Number(s.transactionId) !== Number(payload.transactionId)) return s;
++          if (payload?.stationNumber && s?.stationNumber && String(s.stationNumber) !== String(payload.stationNumber)) return s;
++          return {
++            ...s,
++            voltage: payload.voltage ?? s.voltage,
++            current: payload.current ?? s.current,
++            powerOutput: payload.power ?? s.powerOutput,
++            chargingSpeed: payload.power ?? s.chargingSpeed,
++            energyDelivered: payload.energyDelivered ?? s.energyDelivered,
++            temperature: payload.temperature ?? s.temperature,
++          };
++        });
++      });
++    };
++
++    const onTransactionUpdate = () => {
++      queryClient.invalidateQueries({ queryKey: ["sessions"] });
++      queryClient.invalidateQueries({ queryKey: ["liveSessions"] });
++    };
++
++    const onFaultAlert = (payload: any) => {
++      queryClient.setQueryData(["faults"], (prev: any) => {
++        if (!Array.isArray(prev)) return prev;
++        const exists = prev.some((f: any) => String(f?._id) === String(payload?.faultId));
++        if (exists) return prev;
++        return [{ _id: payload.faultId, ...payload }, ...prev];
++      });
++      queryClient.invalidateQueries({ queryKey: ["faults"] });
++    };
++
++    socket.on("station_update", onStationUpdate);
++    socket.on("ocpp_status", onOcppStatus);
++    socket.on("live_data", onLiveData);
++    socket.on("transaction_update", onTransactionUpdate);
++    socket.on("fault_alert", onFaultAlert);
++
++    return () => {
++      socket.off("connect", onConnect);
++      socket.off("disconnect", onDisconnect);
++      socket.off("station_update", onStationUpdate);
++      socket.off("ocpp_status", onOcppStatus);
++      socket.off("live_data", onLiveData);
++      socket.off("transaction_update", onTransactionUpdate);
++      socket.off("fault_alert", onFaultAlert);
++    };
++  }, [queryClient, socket]);
++
++  const value = useMemo(() => ({ connected }), [connected]);
++
++  return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>;
++}
++
++export const useRealtime = () => useContext(RealtimeContext);
++
+
+
+===== components/ReconnectBanner.tsx =====
+diff --git a/components/ReconnectBanner.tsx b/components/ReconnectBanner.tsx
+new file mode 100644
+index 0000000..6a55c35
+--- /dev/null
++++ b/components/ReconnectBanner.tsx
+@@ -0,0 +1,18 @@
++"use client";
++
++import { useRealtime } from "@/components/RealtimeProvider";
++import { Badge } from "@/components/ui/badge";
++
++export function ReconnectBanner() {
++  const { connected } = useRealtime();
++
++  if (connected) return null;
++
++  return (
++    <div className="w-full px-6 py-2 border-b bg-warning/10 flex items-center justify-between">
++      <div className="text-sm text-muted-foreground">Real-time connection lost. Reconnecting…</div>
++      <Badge variant="outline" className="border-warning text-warning">Offline</Badge>
++    </div>
++  );
++}
++
+
+
+===== components/dashboard/AddStationModal.tsx =====
+diff --git a/components/dashboard/AddStationModal.tsx b/components/dashboard/AddStationModal.tsx
+index d16a29e..2b1ff3d 100644
+--- a/components/dashboard/AddStationModal.tsx
++++ b/components/dashboard/AddStationModal.tsx
+@@ -171,7 +171,7 @@ export const AddStationModal = ({
+       }
+ 
+       if (!editingStation) {
+-        setFormData({ name: '', location: '', latitude: '', longitude: '', district: '', powerOutput: 0, ports: 1, basePricePerKwh: 15, convenienceFee: 2, tax: 20, districtPin: '' });
++        setFormData({ name: '', location: '', latitude: '', longitude: '', district: '', powerOutput: 0, ports: 1, basePricePerKwh: 15, convenienceFee: 2, tax: 20, connectorType: 'Type 2', districtPin: '' });
+         setDynamicPricing([]);
+         setImageFile(null);
+         setImagePreview('');
+
+
+===== components/dashboard/EVBannerCards.tsx =====
+diff --git a/components/dashboard/EVBannerCards.tsx b/components/dashboard/EVBannerCards.tsx
+index cdc87df..db72d68 100644
+--- a/components/dashboard/EVBannerCards.tsx
++++ b/components/dashboard/EVBannerCards.tsx
+@@ -37,7 +37,7 @@ export function EVBannerCards() {
+         >
+           <CardContent className="p-0 relative">
+             <img
+-              src={banner.image}
++              src={banner.image.src}
+               alt={banner.quote}
+               className="w-full h-44 object-cover transition-transform duration-700 group-hover:scale-105"
+             />
+
+
+===== components/dashboard/StationUtilizationChart.tsx =====
+diff --git a/components/dashboard/StationUtilizationChart.tsx b/components/dashboard/StationUtilizationChart.tsx
+index e1cfb69..0e7bc5a 100644
+--- a/components/dashboard/StationUtilizationChart.tsx
++++ b/components/dashboard/StationUtilizationChart.tsx
+@@ -75,7 +75,7 @@ export function StationUtilizationChart() {
+               formatter={(value: number) => [`${value}%`, 'Utilization']}
+             />
+             <Bar dataKey="utilization" radius={[8, 8, 0, 0]} animationDuration={1400} animationEasing="ease-in-out">
+-              {chartData.map((entry, index) => (
++              {chartData.map((entry: any, index: number) => (
+                 <Cell
+                   key={`cell-${index}`}
+                   fill={entry.utilization > 70 ? 'url(#utilizationHigh)' : 'url(#utilizationLow)'}
+
+
+===== hooks/use-socket.ts =====
+diff --git a/hooks/use-socket.ts b/hooks/use-socket.ts
+deleted file mode 100644
+index e6c8182..0000000
+--- a/hooks/use-socket.ts
++++ /dev/null
+@@ -1,25 +0,0 @@
+-"use client";
+-
+-import { useEffect, useRef } from "react";
+-import { io, Socket } from "socket.io-client";
+-
+-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5000";
+-
+-export const useSocket = () => {
+-  const socketRef = useRef<Socket | null>(null);
+-
+-  useEffect(() => {
+-    if (!socketRef.current) {
+-      socketRef.current = io(SOCKET_URL);
+-    }
+-
+-    return () => {
+-      if (socketRef.current) {
+-        socketRef.current.disconnect();
+-        socketRef.current = null;
+-      }
+-    };
+-  }, []);
+-
+-  return socketRef.current;
+-};
+
+
+===== hooks/useMQTT.ts =====
+diff --git a/hooks/useMQTT.ts b/hooks/useMQTT.ts
+deleted file mode 100644
+index 23dc321..0000000
+--- a/hooks/useMQTT.ts
++++ /dev/null
+@@ -1,48 +0,0 @@
+-"use client";
+-
+-import { useEffect, useState } from "react";
+-import { io, Socket } from "socket.io-client";
+-
+-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5000";
+-
+-export const useMQTT = (stationId?: string) => {
+-  const [socket, setSocket] = useState<Socket | null>(null);
+-  const [liveData, setLiveData] = useState<any>(null);
+-  const [status, setStatus] = useState<string | null>(null);
+-  const [alerts, setAlerts] = useState<any[]>([]);
+-
+-  useEffect(() => {
+-    const newSocket = io(SOCKET_URL);
+-    setSocket(newSocket);
+-
+-    newSocket.on("connect", () => {
+-      console.log("Connected to Socket.io");
+-    });
+-
+-    if (stationId) {
+-      // Listen to specific station updates
+-      newSocket.on(`station:${stationId}:live`, (data) => {
+-        setLiveData(data);
+-      });
+-
+-      newSocket.on(`station:${stationId}:status`, (data) => {
+-        setStatus(data.status);
+-      });
+-
+-      newSocket.on(`station:${stationId}:alerts`, (data) => {
+-        setAlerts((prev) => [data, ...prev].slice(0, 10));
+-      });
+-    } else {
+-      // Listen to all live updates (for dashboard overview)
+-      newSocket.on("live_updates", (update) => {
+-        setLiveData(update);
+-      });
+-    }
+-
+-    return () => {
+-      newSocket.disconnect();
+-    };
+-  }, [stationId]);
+-
+-  return { socket, liveData, status, alerts };
+-};
+
+
+===== lib/socket.ts =====
+diff --git a/lib/socket.ts b/lib/socket.ts
+new file mode 100644
+index 0000000..a2b3712
+--- /dev/null
++++ b/lib/socket.ts
+@@ -0,0 +1,20 @@
++import { io, Socket } from "socket.io-client";
++
++const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5000";
++
++let socket: Socket | null = null;
++
++export const getSocket = () => {
++  if (!socket) {
++    socket = io(SOCKET_URL, {
++      transports: ["websocket"],
++      reconnection: true,
++      reconnectionAttempts: Infinity,
++      reconnectionDelay: 500,
++      reconnectionDelayMax: 5000,
++      timeout: 10000,
++    });
++  }
++  return socket;
++};
++
+
+
+===== package-lock.json =====
+diff --git a/package-lock.json b/package-lock.json
+index 16961a0..ec1dae0 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -51,7 +51,6 @@
+         "jsonwebtoken": "^9.0.3",
+         "lucide-react": "^0.462.0",
+         "mongoose": "^9.3.3",
+-        "mqtt": "^5.15.1",
+         "multer": "^2.1.1",
+         "next": "^14.2.0",
+         "next-themes": "^0.3.0",
+@@ -67,6 +66,7 @@
+         "tailwind-merge": "^2.6.0",
+         "tailwindcss-animate": "^1.0.7",
+         "vaul": "^0.9.9",
++        "ws": "^8.18.3",
+         "zod": "^3.25.76"
+       },
+       "devDependencies": {
+@@ -2201,15 +2201,6 @@
+         "@types/react": "^18.0.0"
+       }
+     },
+-    "node_modules/@types/readable-stream": {
+-      "version": "4.0.23",
+-      "resolved": "https://registry.npmjs.org/@types/readable-stream/-/readable-stream-4.0.23.tgz",
+-      "integrity": "sha512-wwXrtQvbMHxCbBgjHaMGEmImFTQxxpfMOR/ZoQnXxB1woqkUbdLGFDgauo00Py9IudiaqSeiBiulSV9i6XIPig==",
+-      "license": "MIT",
+-      "dependencies": {
+-        "@types/node": "*"
+-      }
+-    },
+     "node_modules/@types/webidl-conversions": {
+       "version": "7.0.3",
+       "resolved": "https://registry.npmjs.org/@types/webidl-conversions/-/webidl-conversions-7.0.3.tgz",
+@@ -2510,18 +2501,6 @@
+         "win32"
+       ]
+     },
+-    "node_modules/abort-controller": {
+-      "version": "3.0.0",
+-      "resolved": "https://registry.npmjs.org/abort-controller/-/abort-controller-3.0.0.tgz",
+-      "integrity": "sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==",
+-      "license": "MIT",
+-      "dependencies": {
+-        "event-target-shim": "^5.0.0"
+-      },
+-      "engines": {
+-        "node": ">=6.5"
+-      }
+-    },
+     "node_modules/accepts": {
+       "version": "2.0.0",
+       "resolved": "https://registry.npmjs.org/accepts/-/accepts-2.0.0.tgz",
+@@ -2944,26 +2923,6 @@
+       "integrity": "sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==",
+       "license": "MIT"
+     },
+-    "node_modules/base64-js": {
+-      "version": "1.5.1",
+-      "resolved": "https://registry.npmjs.org/base64-js/-/base64-js-1.5.1.tgz",
+-      "integrity": "sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==",
+-      "funding": [
+-        {
+-          "type": "github",
+-          "url": "https://github.com/sponsors/feross"
+-        },
+-        {
+-          "type": "patreon",
+-          "url": "https://www.patreon.com/feross"
+-        },
+-        {
+-          "type": "consulting",
+-          "url": "https://feross.org/support"
+-        }
+-      ],
+-      "license": "MIT"
+-    },
+     "node_modules/base64id": {
+       "version": "2.0.0",
+       "resolved": "https://registry.npmjs.org/base64id/-/base64id-2.0.0.tgz",
+@@ -2994,34 +2953,6 @@
+         "url": "https://github.com/sponsors/sindresorhus"
+       }
+     },
+-    "node_modules/bl": {
+-      "version": "6.1.6",
+-      "resolved": "https://registry.npmjs.org/bl/-/bl-6.1.6.tgz",
+-      "integrity": "sha512-jLsPgN/YSvPUg9UX0Kd73CXpm2Psg9FxMeCSXnk3WBO3CMT10JMwijubhGfHCnFu6TPn1ei3b975dxv7K2pWVg==",
+-      "license": "MIT",
+-      "dependencies": {
+-        "@types/readable-stream": "^4.0.0",
+-        "buffer": "^6.0.3",
+-        "inherits": "^2.0.4",
+-        "readable-stream": "^4.2.0"
+-      }
+-    },
+-    "node_modules/bl/node_modules/readable-stream": {
+-      "version": "4.7.0",
+-      "resolved": "https://registry.npmjs.org/readable-stream/-/readable-stream-4.7.0.tgz",
+-      "integrity": "sha512-oIGGmcpTLwPga8Bn6/Z75SVaH1z5dUut2ibSyAMVhmUggWpmDn2dapB0n7f8nwaSiRtepAsfJyfXIO5DCVAODg==",
+-      "license": "MIT",
+-      "dependencies": {
+-        "abort-controller": "^3.0.0",
+-        "buffer": "^6.0.3",
+-        "events": "^3.3.0",
+-        "process": "^0.11.10",
+-        "string_decoder": "^1.3.0"
+-      },
+-      "engines": {
+-        "node": "^12.22.0 || ^14.17.0 || >=16.0.0"
+-      }
+-    },
+     "node_modules/body-parser": {
+       "version": "2.2.2",
+       "resolved": "https://registry.npmjs.org/body-parser/-/body-parser-2.2.2.tgz",
+@@ -3085,18 +3016,6 @@
+         "node": ">=8"
+       }
+     },
+-    "node_modules/broker-factory": {
+-      "version": "3.1.14",
+-      "resolved": "https://registry.npmjs.org/broker-factory/-/broker-factory-3.1.14.tgz",
+-      "integrity": "sha512-L45k5HMbPIrMid0nTOZ/UPXG/c0aRuQKVrSDFIb1zOkvfiyHgYmIjc3cSiN1KwQIvRDOtKE0tfb3I9EZ3CmpQQ==",
+-      "license": "MIT",
+-      "dependencies": {
+-        "@babel/runtime": "^7.29.2",
+-        "fast-unique-numbers": "^9.0.27",
+-        "tslib": "^2.8.1",
+-        "worker-factory": "^7.0.49"
+-      }
+-    },
+     "node_modules/browserslist": {
+       "version": "4.25.1",
+       "resolved": "https://registry.npmjs.org/browserslist/-/browserslist-4.25.1.tgz",
+@@ -3139,30 +3058,6 @@
+         "node": ">=20.19.0"
+       }
+     },
+-    "node_modules/buffer": {
+-      "version": "6.0.3",
+-      "resolved": "https://registry.npmjs.org/buffer/-/buffer-6.0.3.tgz",
+-      "integrity": "sha512-FTiCpNxtwiZZHEZbcbTIcZjERVICn9yq/pDFkTl95/AxzD1naBctN7YO68riM/gLSDY7sdrMby8hofADYuuqOA==",
+-      "funding": [
+-        {
+-          "type": "github",
+-          "url": "https://github.com/sponsors/feross"
+-        },
+-        {
+-          "type": "patreon",
+-          "url": "https://www.patreon.com/feross"
+-        },
+-        {
+-          "type": "consulting",
+-          "url": "https://feross.org/support"
+-        }
+-      ],
+-      "license": "MIT",
+-      "dependencies": {
+-        "base64-js": "^1.3.1",
+-        "ieee754": "^1.2.1"
+-      }
+-    },
+     "node_modules/buffer-equal-constant-time": {
+       "version": "1.0.1",
+       "resolved": "https://registry.npmjs.org/buffer-equal-constant-time/-/buffer-equal-constant-time-1.0.1.tgz",
+@@ -3416,12 +3311,6 @@
+         "node": ">= 6"
+       }
+     },
+-    "node_modules/commist": {
+-      "version": "3.2.0",
+-      "resolved": "https://registry.npmjs.org/commist/-/commist-3.2.0.tgz",
+-      "integrity": "sha512-4PIMoPniho+LqXmpS5d3NuGYncG6XWlkBSVGiWycL22dd42OYdUGil2CWuzklaJoNxyxUSpO4MKIBU94viWNAw==",
+-      "license": "MIT"
+-    },
+     "node_modules/concat-map": {
+       "version": "0.0.1",
+       "resolved": "https://registry.npmjs.org/concat-map/-/concat-map-0.0.1.tgz",
+@@ -4952,30 +4841,12 @@
+         "node": ">= 0.6"
+       }
+     },
+-    "node_modules/event-target-shim": {
+-      "version": "5.0.1",
+-      "resolved": "https://registry.npmjs.org/event-target-shim/-/event-target-shim-5.0.1.tgz",
+-      "integrity": "sha512-i/2XbnSz/uxRCU6+NdVJgKWDTM427+MqYbkQzD321DuCQJUqOuJKIA0IM2+W2xtYHdKOmZ4dR6fExsd4SXL+WQ==",
+-      "license": "MIT",
+-      "engines": {
+-        "node": ">=6"
+-      }
+-    },
+     "node_modules/eventemitter3": {
+       "version": "4.0.7",
+       "resolved": "https://registry.npmjs.org/eventemitter3/-/eventemitter3-4.0.7.tgz",
+       "integrity": "sha512-8guHBZCwKnFhYdHr2ysuRWErTwhoN2X8XELRlrRwpmfeY2jjuUN4taQMsULKUVo1K4DvZl+0pgfyoysHxvmvEw==",
+       "license": "MIT"
+     },
+-    "node_modules/events": {
+-      "version": "3.3.0",
+-      "resolved": "https://registry.npmjs.org/events/-/events-3.3.0.tgz",
+-      "integrity": "sha512-mQw+2fkQbALzQ7V0MY0IqdnXNOeTtP4r0lN9z7AAawCXgqea7bDii20AYrIBrFd/Hx0M2Ocz6S111CaFkUcb0Q==",
+-      "license": "MIT",
+-      "engines": {
+-        "node": ">=0.8.x"
+-      }
+-    },
+     "node_modules/express": {
+       "version": "5.2.1",
+       "resolved": "https://registry.npmjs.org/express/-/express-5.2.1.tgz",
+@@ -5102,19 +4973,6 @@
+       "dev": true,
+       "license": "MIT"
+     },
+-    "node_modules/fast-unique-numbers": {
+-      "version": "9.0.27",
+-      "resolved": "https://registry.npmjs.org/fast-unique-numbers/-/fast-unique-numbers-9.0.27.tgz",
+-      "integrity": "sha512-nDA9ADeINN8SA2u2wCtU+siWFTTDqQR37XvgPIDDmboWQeExz7X0mImxuaN+kJddliIqy2FpVRmnvRZ+j8i1/A==",
+-      "license": "MIT",
+-      "dependencies": {
+-        "@babel/runtime": "^7.29.2",
+-        "tslib": "^2.8.1"
+-      },
+-      "engines": {
+-        "node": ">=18.2.0"
+-      }
+-    },
+     "node_modules/fastq": {
+       "version": "1.17.1",
+       "resolved": "https://registry.npmjs.org/fastq/-/fastq-1.17.1.tgz",
+@@ -5648,12 +5506,6 @@
+         "node": ">= 0.4"
+       }
+     },
+-    "node_modules/help-me": {
+-      "version": "5.0.0",
+-      "resolved": "https://registry.npmjs.org/help-me/-/help-me-5.0.0.tgz",
+-      "integrity": "sha512-7xgomUX6ADmcYzFik0HzAxh/73YlKR9bmFzf51CZwR+b6YtzU2m0u49hQCqV6SvlqIqsaxovfwdvbnsw3b/zpg==",
+-      "license": "MIT"
+-    },
+     "node_modules/http-errors": {
+       "version": "2.0.1",
+       "resolved": "https://registry.npmjs.org/http-errors/-/http-errors-2.0.1.tgz",
+@@ -5674,26 +5526,6 @@
+         "url": "https://opencollective.com/express"
+       }
+     },
+-    "node_modules/ieee754": {
+-      "version": "1.2.1",
+-      "resolved": "https://registry.npmjs.org/ieee754/-/ieee754-1.2.1.tgz",
+-      "integrity": "sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==",
+-      "funding": [
+-        {
+-          "type": "github",
+-          "url": "https://github.com/sponsors/feross"
+-        },
+-        {
+-          "type": "patreon",
+-          "url": "https://www.patreon.com/feross"
+-        },
+-        {
+-          "type": "consulting",
+-          "url": "https://feross.org/support"
+-        }
+-      ],
+-      "license": "BSD-3-Clause"
+-    },
+     "node_modules/ignore": {
+       "version": "5.3.2",
+       "resolved": "https://registry.npmjs.org/ignore/-/ignore-5.3.2.tgz",
+@@ -5788,6 +5620,8 @@
+       "resolved": "https://registry.npmjs.org/ip-address/-/ip-address-10.2.0.tgz",
+       "integrity": "sha512-/+S6j4E9AHvW9SWMSEY9Xfy66O5PWvVEJ08O0y5JGyEKQpojb0K0GKpz/v5HJ/G0vi3D2sjGK78119oXZeE0qA==",
+       "license": "MIT",
++      "optional": true,
++      "peer": true,
+       "engines": {
+         "node": ">= 12"
+       }
+@@ -6291,16 +6125,6 @@
+         "jiti": "bin/jiti.js"
+       }
+     },
+-    "node_modules/js-sdsl": {
+-      "version": "4.3.0",
+-      "resolved": "https://registry.npmjs.org/js-sdsl/-/js-sdsl-4.3.0.tgz",
+-      "integrity": "sha512-mifzlm2+5nZ+lEcLJMoBK0/IH/bDg8XnJfd/Wq6IP+xoCjLZsTOnV2QpxlVbX9bMnkl5PdEjNtBJ9Cj1NjifhQ==",
+-      "license": "MIT",
+-      "funding": {
+-        "type": "opencollective",
+-        "url": "https://opencollective.com/js-sdsl"
+-      }
+-    },
+     "node_modules/js-tokens": {
+       "version": "4.0.0",
+       "resolved": "https://registry.npmjs.org/js-tokens/-/js-tokens-4.0.0.tgz",
+@@ -6676,6 +6500,7 @@
+       "version": "1.2.8",
+       "resolved": "https://registry.npmjs.org/minimist/-/minimist-1.2.8.tgz",
+       "integrity": "sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA==",
++      "dev": true,
+       "license": "MIT",
+       "funding": {
+         "url": "https://github.com/sponsors/ljharb"
+@@ -6804,65 +6629,6 @@
+         "node": ">=4.0.0"
+       }
+     },
+-    "node_modules/mqtt": {
+-      "version": "5.15.1",
+-      "resolved": "https://registry.npmjs.org/mqtt/-/mqtt-5.15.1.tgz",
+-      "integrity": "sha512-V1WnkGuJh3ec9QXzy5Iylw8OOBK+Xu1WhxcQ9mMpLThG+/JZIMV1PgLNRgIiqXhZnvnVLsuyxHl5A/3bHHbcAA==",
+-      "license": "MIT",
+-      "dependencies": {
+-        "@types/readable-stream": "^4.0.21",
+-        "@types/ws": "^8.18.1",
+-        "commist": "^3.2.0",
+-        "concat-stream": "^2.0.0",
+-        "debug": "^4.4.1",
+-        "help-me": "^5.0.0",
+-        "lru-cache": "^10.4.3",
+-        "minimist": "^1.2.8",
+-        "mqtt-packet": "^9.0.2",
+-        "number-allocator": "^1.0.14",
+-        "readable-stream": "^4.7.0",
+-        "rfdc": "^1.4.1",
+-        "socks": "^2.8.6",
+-        "split2": "^4.2.0",
+-        "worker-timers": "^8.0.23",
+-        "ws": "^8.18.3"
+-      },
+-      "bin": {
+-        "mqtt": "build/bin/mqtt.js",
+-        "mqtt_pub": "build/bin/pub.js",
+-        "mqtt_sub": "build/bin/sub.js"
+-      },
+-      "engines": {
+-        "node": ">=16.0.0"
+-      }
+-    },
+-    "node_modules/mqtt-packet": {
+-      "version": "9.0.2",
+-      "resolved": "https://registry.npmjs.org/mqtt-packet/-/mqtt-packet-9.0.2.tgz",
+-      "integrity": "sha512-MvIY0B8/qjq7bKxdN1eD+nrljoeaai+qjLJgfRn3TiMuz0pamsIWY2bFODPZMSNmabsLANXsLl4EMoWvlaTZWA==",
+-      "license": "MIT",
+-      "dependencies": {
+-        "bl": "^6.0.8",
+-        "debug": "^4.3.4",
+-        "process-nextick-args": "^2.0.1"
+-      }
+-    },
+-    "node_modules/mqtt/node_modules/readable-stream": {
+-      "version": "4.7.0",
+-      "resolved": "https://registry.npmjs.org/readable-stream/-/readable-stream-4.7.0.tgz",
+-      "integrity": "sha512-oIGGmcpTLwPga8Bn6/Z75SVaH1z5dUut2ibSyAMVhmUggWpmDn2dapB0n7f8nwaSiRtepAsfJyfXIO5DCVAODg==",
+-      "license": "MIT",
+-      "dependencies": {
+-        "abort-controller": "^3.0.0",
+-        "buffer": "^6.0.3",
+-        "events": "^3.3.0",
+-        "process": "^0.11.10",
+-        "string_decoder": "^1.3.0"
+-      },
+-      "engines": {
+-        "node": "^12.22.0 || ^14.17.0 || >=16.0.0"
+-      }
+-    },
+     "node_modules/mquery": {
+       "version": "6.0.0",
+       "resolved": "https://registry.npmjs.org/mquery/-/mquery-6.0.0.tgz",
+@@ -7133,16 +6899,6 @@
+         "node": ">=0.10.0"
+       }
+     },
+-    "node_modules/number-allocator": {
+-      "version": "1.0.14",
+-      "resolved": "https://registry.npmjs.org/number-allocator/-/number-allocator-1.0.14.tgz",
+-      "integrity": "sha512-OrL44UTVAvkKdOdRQZIJpLkAdjXGTRda052sN4sO77bKEzYYqWKMBjQvrJFzqygI99gL6Z4u2xctPW1tB8ErvA==",
+-      "license": "MIT",
+-      "dependencies": {
+-        "debug": "^4.3.1",
+-        "js-sdsl": "4.3.0"
+-      }
+-    },
+     "node_modules/object-assign": {
+       "version": "4.1.1",
+       "resolved": "https://registry.npmjs.org/object-assign/-/object-assign-4.1.1.tgz",
+@@ -7660,21 +7416,6 @@
+         "node": ">= 0.8.0"
+       }
+     },
+-    "node_modules/process": {
+-      "version": "0.11.10",
+-      "resolved": "https://registry.npmjs.org/process/-/process-0.11.10.tgz",
+-      "integrity": "sha512-cdGef/drWFoydD1JsMzuFf8100nZl+GT+yacc2bEced5f9Rjk4z+WtFUTBu9PhOi9j/jfmBPu0mMEY4wIdAF8A==",
+-      "license": "MIT",
+-      "engines": {
+-        "node": ">= 0.6.0"
+-      }
+-    },
+-    "node_modules/process-nextick-args": {
+-      "version": "2.0.1",
+-      "resolved": "https://registry.npmjs.org/process-nextick-args/-/process-nextick-args-2.0.1.tgz",
+-      "integrity": "sha512-3ouUOpQhtgrbOa17J7+uxOTpITYWaGP7/AhoR3+A+/1e9skrzelGi/dXzEYyvbxubEF6Wn2ypscTKiKJFFn1ag==",
+-      "license": "MIT"
+-    },
+     "node_modules/prop-types": {
+       "version": "15.8.1",
+       "resolved": "https://registry.npmjs.org/prop-types/-/prop-types-15.8.1.tgz",
+@@ -8118,12 +7859,6 @@
+         "node": ">=0.10.0"
+       }
+     },
+-    "node_modules/rfdc": {
+-      "version": "1.4.1",
+-      "resolved": "https://registry.npmjs.org/rfdc/-/rfdc-1.4.1.tgz",
+-      "integrity": "sha512-q1b3N5QkRUWUl7iyylaaj3kOpIT0N2i9MqIEQXP73GVsN9cw3fdx8X63cEmWhJGi2PPCF23Ijp7ktmd39rawIA==",
+-      "license": "MIT"
+-    },
+     "node_modules/rimraf": {
+       "version": "3.0.2",
+       "resolved": "https://registry.npmjs.org/rimraf/-/rimraf-3.0.2.tgz",
+@@ -8555,6 +8290,8 @@
+       "resolved": "https://registry.npmjs.org/smart-buffer/-/smart-buffer-4.2.0.tgz",
+       "integrity": "sha512-94hK0Hh8rPqQl2xXc3HsaBoOXKV20MToPkcXvwbISWLEs+64sBq5kFgn2kJDHb1Pry9yrP0dxrCI9RRci7RXKg==",
+       "license": "MIT",
++      "optional": true,
++      "peer": true,
+       "engines": {
+         "node": ">= 6.0.0",
+         "npm": ">= 3.0.0"
+@@ -8664,6 +8401,8 @@
+       "resolved": "https://registry.npmjs.org/socks/-/socks-2.8.9.tgz",
+       "integrity": "sha512-LJhUYUvItdQ0LkJTmPeaEObWXAqFyfmP85x0tch/ez9cahmhlBBLbIqDFnvBnUJGagb0JbIQrkBs1wJ+yRYpEw==",
+       "license": "MIT",
++      "optional": true,
++      "peer": true,
+       "dependencies": {
+         "ip-address": "^10.1.1",
+         "smart-buffer": "^4.2.0"
+@@ -8701,15 +8440,6 @@
+         "memory-pager": "^1.0.2"
+       }
+     },
+-    "node_modules/split2": {
+-      "version": "4.2.0",
+-      "resolved": "https://registry.npmjs.org/split2/-/split2-4.2.0.tgz",
+-      "integrity": "sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==",
+-      "license": "ISC",
+-      "engines": {
+-        "node": ">= 10.x"
+-      }
+-    },
+     "node_modules/stable-hash": {
+       "version": "0.0.5",
+       "resolved": "https://registry.npmjs.org/stable-hash/-/stable-hash-0.0.5.tgz",
+@@ -9741,53 +9471,6 @@
+         "node": ">=0.10.0"
+       }
+     },
+-    "node_modules/worker-factory": {
+-      "version": "7.0.49",
+-      "resolved": "https://registry.npmjs.org/worker-factory/-/worker-factory-7.0.49.tgz",
+-      "integrity": "sha512-lW7tpgy6aUv2dFsQhv1yv+XFzdkCf/leoKRTGMPVK5/die6RrUjqgJHJf556qO+ZfytNG6wPXc17E8zzsOLUDw==",
+-      "license": "MIT",
+-      "dependencies": {
+-        "@babel/runtime": "^7.29.2",
+-        "fast-unique-numbers": "^9.0.27",
+-        "tslib": "^2.8.1"
+-      }
+-    },
+-    "node_modules/worker-timers": {
+-      "version": "8.0.31",
+-      "resolved": "https://registry.npmjs.org/worker-timers/-/worker-timers-8.0.31.tgz",
+-      "integrity": "sha512-ngkq5S6JuZyztom8tDgBzorLo9byhBMko/sXfgiUD945AuzKGg1GCgDMCC3NaYkicLpGKXutONM36wEX8UbBCA==",
+-      "license": "MIT",
+-      "dependencies": {
+-        "@babel/runtime": "^7.29.2",
+-        "tslib": "^2.8.1",
+-        "worker-timers-broker": "^8.0.16",
+-        "worker-timers-worker": "^9.0.14"
+-      }
+-    },
+-    "node_modules/worker-timers-broker": {
+-      "version": "8.0.16",
+-      "resolved": "https://registry.npmjs.org/worker-timers-broker/-/worker-timers-broker-8.0.16.tgz",
+-      "integrity": "sha512-JyP3AvUGyPGbBGW7XiUewm2+0pN/aYo1QpVf5kdXAfkDZcN3p7NbWrG6XnyDEpDIvfHk/+LCnOW/NsuiU9riYA==",
+-      "license": "MIT",
+-      "dependencies": {
+-        "@babel/runtime": "^7.29.2",
+-        "broker-factory": "^3.1.14",
+-        "fast-unique-numbers": "^9.0.27",
+-        "tslib": "^2.8.1",
+-        "worker-timers-worker": "^9.0.14"
+-      }
+-    },
+-    "node_modules/worker-timers-worker": {
+-      "version": "9.0.14",
+-      "resolved": "https://registry.npmjs.org/worker-timers-worker/-/worker-timers-worker-9.0.14.tgz",
+-      "integrity": "sha512-/qF06C60sXmSLfUl7WglvrDIbspmPOM8UrG63Dnn4bi2x4/DfqHS/+dxF5B+MdHnYO5tVuZYLHdAodrKdabTIg==",
+-      "license": "MIT",
+-      "dependencies": {
+-        "@babel/runtime": "^7.29.2",
+-        "tslib": "^2.8.1",
+-        "worker-factory": "^7.0.49"
+-      }
+-    },
+     "node_modules/wrap-ansi": {
+       "version": "8.1.0",
+       "resolved": "https://registry.npmjs.org/wrap-ansi/-/wrap-ansi-8.1.0.tgz",
+
+
+===== package.json =====
+diff --git a/package.json b/package.json
+index 42cc54a..21cce96 100644
+--- a/package.json
++++ b/package.json
+@@ -56,7 +56,6 @@
+     "jsonwebtoken": "^9.0.3",
+     "lucide-react": "^0.462.0",
+     "mongoose": "^9.3.3",
+-    "mqtt": "^5.15.1",
+     "multer": "^2.1.1",
+     "next": "^14.2.0",
+     "next-themes": "^0.3.0",
+@@ -72,6 +71,7 @@
+     "tailwind-merge": "^2.6.0",
+     "tailwindcss-animate": "^1.0.7",
+     "vaul": "^0.9.9",
++    "ws": "^8.18.3",
+     "zod": "^3.25.76"
+   },
+   "devDependencies": {
+
+
+===== services/api.ts =====
+diff --git a/services/api.ts b/services/api.ts
+index af9e852..ea15c8c 100644
+--- a/services/api.ts
++++ b/services/api.ts
+@@ -26,9 +26,9 @@ const getToken = () => {
+ 
+ const authHeaders = () => {
+   const token = getToken();
+-  return token
+-    ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+-    : { "Content-Type": "application/json" };
++  const headers: Record<string, string> = { "Content-Type": "application/json" };
++  if (token) headers.Authorization = `Bearer ${token}`;
++  return headers;
+ };
+ 
+ // AUTH

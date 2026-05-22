@@ -1,5 +1,5 @@
 import express from "express";
-import { getStations, setStation, updateStation, deleteStation, getDebugStations, searchStations } from "../controllers/stationController.js";
+import { getStations, getStationById, setStation, updateStation, deleteStation, getDebugStations, searchStations } from "../controllers/stationController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import upload from "../middleware/uploadMiddleware.js";
 
@@ -16,6 +16,7 @@ router.get("/search", searchStations);
 router.get("/debug", getDebugStations);
 
 router.route("/:id")
+  .get(protect, getStationById)
   .put(protect, upload.single('image'), updateStation)
   .delete(protect, deleteStation);
 

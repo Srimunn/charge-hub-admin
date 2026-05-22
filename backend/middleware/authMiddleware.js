@@ -14,12 +14,11 @@ export const protect = async (req, res, next) => {
 
             // Get user from the token
             const isDbConnected = User.db.readyState === 1;
-            if (isDbConnected && decoded.id.length === 24) {
-                req.user = await User.findById(decoded.id).select('-password');
-            } else {
-                // Mock mode: create a dummy user object from the token ID
-                req.user = { id: decoded.id };
+            if (!isDbConnected) {
+                return res.status(503).json({ error: "Database not connected" });
             }
+
+            req.user = await User.findById(decoded.id).select('-password');
 
             if (!req.user) {
                 return res.status(401).json({ error: 'Not authorized, user not found' });

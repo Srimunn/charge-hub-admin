@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useMemo } from 'react';
 import { DashboardHeader } from '@/components/layout/DashboardHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,39 +14,34 @@ import {
 import { getFaults, resolveFault } from '@/services/api';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export default function FaultsPage() {
-  const [faults, setFaults] = useState<any[]>([]);
-  const router = useRouter();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    fetchFaults();
-    const interval = setInterval(fetchFaults, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  const faultsQuery = useQuery({ queryKey: ["faults"], queryFn: getFaults });
+  const faults = (faultsQuery.data || []) as any[];
 
-  const fetchFaults = async () => {
-    try {
-      const data = await getFaults();
-      setFaults(data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleResolve = async (id: string) => {
-    try {
-      await resolveFault(id);
+  const resolveMutation = useMutation({
+    mutationFn: resolveFault,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["faults"] });
       toast({ title: 'Fault Resolved', description: `Fault safely marked as resolved in the system.` });
-      fetchFaults();
-    } catch (err: any) {
-      toast({ title: 'Error Resolving', description: err.message, variant: 'destructive' });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Error Resolving', description: err?.message, variant: 'destructive' });
     }
-  };
+  });
 
-  const openCount = faults.filter(f => f.status === 'active').length;
-  const highCount = faults.filter(f => f.severity === 'high' && f.status === 'active').length;
+  const handleResolve = (id: string) => resolveMutation.mutate(id);
+
+  const counts = useMemo(() => {
+    const openCount = faults.filter((f) => f.status === "active").length;
+    const highCount = faults.filter((f) => f.severity === "high" && f.status === "active").length;
+    const resolvedCount = faults.filter((f) => f.status === "resolved").length;
+    return { openCount, highCount, resolvedCount };
+  }, [faults]);
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -62,7 +56,7 @@ export default function FaultsPage() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Active Faults</p>
-                <p className="text-2xl font-bold">{openCount}</p>
+                <p className="text-2xl font-bold">{counts.openCount}</p>
               </div>
             </CardContent>
           </Card>
@@ -73,7 +67,7 @@ export default function FaultsPage() {
               </div>
               <div>
                 <p className="text-sm text-destructive font-semibold">Critical (High)</p>
-                <p className="text-2xl font-bold text-destructive animate-pulse">{highCount}</p>
+                <p className="text-2xl font-bold text-destructive animate-pulse">{counts.highCount}</p>
               </div>
             </CardContent>
           </Card>
@@ -84,7 +78,7 @@ export default function FaultsPage() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Resolved</p>
-                <p className="text-2xl font-bold">{faults.filter(f => f.status === 'resolved').length}</p>
+                <p className="text-2xl font-bold">{counts.resolvedCount}</p>
               </div>
             </CardContent>
           </Card>
@@ -96,7 +90,9 @@ export default function FaultsPage() {
             <CardTitle>All Faults</CardTitle>
           </CardHeader>
           <CardContent>
-            {faults.length === 0 ? <p className="text-muted-foreground p-4 text-center">No faults detected.</p> : (
+            {faultsQuery.isLoading ? (
+              <div className="p-8 text-center text-muted-foreground">Loading faults…</div>
+            ) : faults.length === 0 ? <p className="text-muted-foreground p-4 text-center">No faults detected.</p> : (
             <Table>
               <TableHeader>
                 <TableRow>
