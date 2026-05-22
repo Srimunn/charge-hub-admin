@@ -1,29 +1,4 @@
 import Station from '../models/Station.js';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const STATIONS_FILE = path.join(__dirname, '../data/stations.json');
-
-const readMockStations = () => {
-    try {
-        if (!fs.existsSync(STATIONS_FILE)) return [];
-        return JSON.parse(fs.readFileSync(STATIONS_FILE, 'utf8'));
-    } catch (err) {
-        console.error("Error reading mock stations:", err);
-        return [];
-    }
-};
-
-const writeMockStations = (stations) => {
-    try {
-        fs.writeFileSync(STATIONS_FILE, JSON.stringify(stations, null, 2));
-    } catch (err) {
-        console.error("Error writing mock stations:", err);
-    }
-};
 
 // Helper: generate unique 8-digit station number
 const generateStationNumber = async (pinPrefix) => {
@@ -50,16 +25,18 @@ const generateStationNumber = async (pinPrefix) => {
 // @access  Public
 export const getStations = async (req, res) => {
     try {
-        const isDbConnected = Station.db.readyState === 1;
-        if (isDbConnected) {
-            const stations = await Station.find({});
-            res.status(200).json(stations);
-        } else {
-            // Only return user-added mock stations from file, removed default mock stations
-            const mockStationStore = readMockStations();
-            console.log(`📡 Serving ${mockStationStore.length} mock stations from file`);
-            res.status(200).json(mockStationStore);
-        }
+        const stations = await Station.find({ userId: req.user.id }).sort({ createdAt: -1 });
+        res.status(200).json(stations);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+export const getStationById = async (req, res) => {
+    try {
+        const station = await Station.findOne({ _id: req.params.id, userId: req.user.id });
+        if (!station) return res.status(404).json({ error: "Station not found" });
+        res.status(200).json(station);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -70,19 +47,8 @@ export const getStations = async (req, res) => {
 // @access  Public
 export const getDebugStations = async (req, res) => {
     try {
-        const isDbConnected = Station.db.readyState === 1;
-        if (isDbConnected) {
-            const dbStations = await Station.find({});
-            // If you want to show ONLY DB stations:
-            // res.json(dbStations);
-            // If you want to show BOTH DB and Mock stations (combined):
-            const mockStations = readMockStations();
-            const combined = [...dbStations, ...mockStations];
-            res.json(combined);
-        } else {
-            const mockStationStore = readMockStations();
-            res.json(mockStationStore);
-        }
+        const stations = await Station.find({}).sort({ createdAt: -1 });
+        res.json(stations);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -96,8 +62,6 @@ export const setStation = async (req, res) => {
         const { name, location, powerOutput, status, ports, connectorType, basePricePerKwh, dynamicPricing, convenienceFee, tax, districtPin, latitude, longitude, district } = req.body;
         console.log('📦 Incoming station data:', { name, location, latitude, longitude, powerOutput, ports, districtPin });
         console.log('📷 File received:', req.file ? req.file.originalname : 'none');
-        
-        const isDbConnected = Station.db.readyState === 1;
 
         let parsedDynamicPricing = [];
         if (dynamicPricing) {
@@ -121,56 +85,28 @@ export const setStation = async (req, res) => {
         }
 
         const pinPrefix = districtPin || "000";
+        const stationNumber = await generateStationNumber(pinPrefix);
+        const station = new Station({
+            stationNumber,
+            name,
+            location,
+            district,
+            latitude: latitude ? Number(latitude) : undefined,
+            longitude: longitude ? Number(longitude) : undefined,
+            powerOutput: Number(powerOutput) || 0,
+            ports: Number(ports) || 1,
+            connectorType: connectorType || 'Type 2',
+            image: imageUrl,
+            status: status || 'offline',
+            userId: req.user.id,
+            basePricePerKwh: Number(basePricePerKwh) || 0,
+            dynamicPricing: parsedDynamicPricing,
+            convenienceFee: convFee,
+            tax: Number(tax) || 0,
+        });
 
-        if (isDbConnected) {
-            const stationNumber = await generateStationNumber(pinPrefix);
-            const station = new Station({
-                stationNumber,
-                name,
-                location,
-                district,
-                latitude: latitude ? Number(latitude) : undefined,
-                longitude: longitude ? Number(longitude) : undefined,
-                powerOutput: Number(powerOutput) || 0,
-                ports: Number(ports) || 1,
-                connectorType: connectorType || 'Type 2',
-                image: imageUrl,
-                status: status || 'online',
-                userId: req.user.id,
-                basePricePerKwh: Number(basePricePerKwh) || 0,
-                dynamicPricing: parsedDynamicPricing,
-                convenienceFee: convFee,
-                tax: Number(tax) || 0,
-            });
-
-            await station.save();
-            console.log('✅ Station saved to MongoDB:', station._id);
-            res.status(201).json(station);
-        } else {
-            // Mock mode: Save to file persistence
-            const stationNumber = `${pinPrefix}${Math.floor(10000 + Math.random() * 90000)}`;
-            const mockStationStore = readMockStations();
-            const newStation = {
-                _id: Date.now().toString(),
-                stationNumber,
-                name,
-                location,
-                powerOutput: Number(powerOutput) || 0,
-                ports: Number(ports) || 1,
-                image: imageUrl || "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgdmlld0JveD0iMCAwIDUxMiA1MTIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiByeD0iMjU2IiBmaWxsPSJ1cmwoI3BhaW50MF9saW5lYXJfMTI4XzIpIi8+CjxwYXRoIGQ9Ik0zMzYuNSA5NkgxNzUuNUMxNTguMTAxIDk2IDE0NCAxMTAuMTAxIDE0NCAxMjcuNVYzODQuNUMxNDQgNDAxLjg5OSAxNTguMTAxIDQxNiAxNzUuNSA0MTZIMzM2LjVDMzUzLjg5OSA0MTYgMzY4IDQwMS44OTkgMzY4IDM4NC41VjEyNy41QzM2OCAxMTAuMTAxIDM1My44OTkgOTYgMzM2LjUgOTZaIiBmaWxsPSJ3aGl0ZSIvPgo8cGF0aCBkPSJNMjU2IDIzMkwyMjQgMjg4SDI1NkwyMjQgMzQ0TDI4OCAyNTZIMjU2TDI4OCAyMzJMMjU2IDIzMlowIiBmaWxsPSIjMDBBQkZGIi8+CjxwYXRoIGQ9Ik0zODQgMTYwQzQwMi4xMDQgMTYwIDQxNiAxNzQuMjk2IDQxNiAxOTJWMjU2QzQxNiAyODMuNjE0IDQwNC44MDcgMzA4LjYwNyAzODYuNjY3IDMyNi43NzJDMzcwLjE1NCAzNDMuMzA3IDM1My4zMzMgMzUyIDMzNiAzNTJWMzIwQzM0Ny4zMzMgMzIwIDM1OC4xNTQgMzEzLjMwNyAzNjkuNjY3IDI5OS43NzJDMzgwLjgwNyAyODUuNjA3IDM4NCAyNjcuNjE0IDM4NCAyNTZWMzkyQzM4NCAxODUuMjk2IDM3OS4xMDQgMTgwIDM2OCAxODBWMTYwSDM4NFpNMzg0IDE5MkgyODhWMTYwSDM4NFYxOTJaIiBmaWxsPSJ3aGl0ZSIvPgo8ZGVmaW5zPgo8bGluZWFyR3JhZGllbnQgaWQ9InBhaW50MF9saW5lYXJfMTI4XzIiIHgxPSIyNTYiIHkxPSIwIiB4Mj0iMjU2IiB5Mj0iNTEyIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+CjxzdG9wIHN0b3AtY29sb3I9IiMwMEQxRkYiLz4KPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMDA2NkZGIi8+CjwvbGluZWFyR3JhZGllbnQ+CjwvZGVmaW5zPgo8L3N2Zz4K",
-                status: status || 'online',
-                userId: req.user.id,
-                basePricePerKwh: Number(basePricePerKwh) || 0,
-                dynamicPricing: parsedDynamicPricing,
-                convenienceFee: convFee,
-                tax: Number(tax) || 0,
-                createdAt: new Date()
-            };
-            mockStationStore.push(newStation);
-            writeMockStations(mockStationStore);
-            console.log('✅ Station saved to Mock Store (Persistent JSON)');
-            res.status(201).json(newStation);
-        }
+        await station.save();
+        res.status(201).json(station);
     } catch (err) {
         console.error('❌ setStation error:', err.message);
         res.status(500).json({ error: err.message });
@@ -254,19 +190,6 @@ export const searchStations = async (req, res) => {
         const { query } = req.query;
         if (!query) {
             return res.status(400).json({ error: "Search query is required" });
-        }
-        
-        const isDbConnected = Station.db.readyState === 1;
-        if (!isDbConnected) {
-            // Mock fallback
-            const mockStations = readMockStations();
-            const lowerQuery = query.toLowerCase();
-            const results = mockStations.filter(s => 
-                (s.name && s.name.toLowerCase().includes(lowerQuery)) ||
-                (s.location && s.location.toLowerCase().includes(lowerQuery)) ||
-                (s.district && s.district.toLowerCase().includes(lowerQuery))
-            );
-            return res.status(200).json(results);
         }
 
         const regex = new RegExp(query, 'i');

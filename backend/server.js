@@ -24,7 +24,7 @@ import { fileURLToPath } from "url";
 
 import http from "http";
 import { Server } from "socket.io";
-import MQTTService from "./services/mqttService.js";
+import OcppCentralSystem from "./services/ocppCentralSystem.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -46,10 +46,6 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 console.log("🚀 Server starting...");
 console.log("MONGO_URI:", process.env.MONGO_URI);
 
-// Initialize MQTT Service
-const mqttService = new MQTTService(io);
-mqttService.connect();
-
 // Socket.io Room Logic
 io.on("connection", (socket) => {
   console.log("🔌 New Client Connected:", socket.id);
@@ -69,38 +65,22 @@ io.on("connection", (socket) => {
   });
 });
 
-// MongoDB Connection (Mocked for environment without local MongoDB)
-mongoose.set('bufferCommands', false);
+mongoose.set("bufferCommands", false);
 
-const connectDB = async () => {
-  try {
-    // Attempt connection if URI looks like a real cloud URI, otherwise skip to mock
-    if (process.env.MONGO_URI && !process.env.MONGO_URI.includes('localhost')) {
-      await mongoose.connect(process.env.MONGO_URI);
-      console.log("✅ MongoDB Connected");
-    } else {
-      console.log("⚠️ No local MongoDB found. Running in MOCK MODE (No Database Persistence)");
-    }
-    
-    // Start Simulator
-    import('./simulator.js').then(module => {
-      module.startSimulation();
-      console.log("✅ Simulation Started");
-    });
+const mongoUri = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/ev_chargings";
 
-    server.listen(5000, () => {
-      console.log("🌐 Server running on http://localhost:5000");
-      console.log("📡 WebSocket and MQTT Ready");
-    });
-  } catch (err) {
-    console.error("❌ MongoDB Connection Error. Starting anyway in MOCK MODE...");
-    server.listen(5000, () => {
-      console.log("🌐 Server running on http://localhost:5000");
-    });
-  }
-};
+mongoose.connect(mongoUri).then(
+  () => console.log("✅ MongoDB Connected"),
+  (err) => console.error("❌ MongoDB Connection Error:", err?.message || err)
+);
 
-connectDB();
+const ocppCentralSystem = new OcppCentralSystem({ server, io, pathPrefix: "/ocpp" });
+ocppCentralSystem.attach();
+
+server.listen(5000, () => {
+  console.log("🌐 Server running on http://localhost:5000");
+  console.log("📡 Socket.io and OCPP Ready");
+});
 
 app.get("/", (req, res) => {
   res.send("API Running");
@@ -111,7 +91,7 @@ app.get("/test", (req, res) => {
 });
 
 app.use((req, res, next) => {
-  req.mqttService = mqttService;
+  req.ocppCentralSystem = ocppCentralSystem;
   next();
 });
 
@@ -125,4 +105,4 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 
 // Static folder for uploads
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));

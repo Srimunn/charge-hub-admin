@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { DashboardHeader } from '@/components/layout/DashboardHeader';
@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Progress } from '@/components/ui/progress';
 import { getStations, deleteStation, getImageUrl } from '@/services/api';
 import { AddStationModal } from '@/components/dashboard/AddStationModal';
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export interface StationData {
   _id: string;
@@ -27,6 +28,7 @@ export interface StationData {
   ports?: number;
   health?: number;
   image?: string;
+  ocppConnected?: boolean;
   basePricePerKwh?: number;
   dynamicPricing?: {startTime: string, endTime: string, pricePerKwh: number}[];
   convenienceFee?: number;
@@ -35,34 +37,39 @@ export interface StationData {
 
 
 export default function StationsPage() {
-  const [stations, setStations] = useState<StationData[]>([]);
   const { toast } = useToast();
   const router = useRouter();
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    fetchStations();
-  }, []);
+  const stationsQuery = useQuery({
+    queryKey: ["stations"],
+    queryFn: getStations,
+    staleTime: 0,
+  });
 
-  const fetchStations = async () => {
-    try {
-      const data = await getStations();
-      setStations(data);
-    } catch (err) {
-      console.error(err);
-      toast({ title: "Error", description: "Could not load stations", variant: "destructive" });
-    }
-  };
+  useQuery({
+    queryKey: ["liveTelemetry"],
+    queryFn: async () => ({}),
+    initialData: {},
+    staleTime: Infinity,
+  });
 
-  const handleDeleteStation = async (id: string) => {
-    if (window.confirm("Are you sure you want to remove this station?")) {
-      try {
-        await deleteStation(id);
-        toast({ title: "Success", description: "Station removed successfully" });
-        fetchStations();
-      } catch (err: any) {
-        toast({ title: "Error", description: err.message || "Failed to remove station", variant: "destructive" });
-      }
-    }
+  const telemetry = (queryClient.getQueryData(["liveTelemetry"]) || {}) as Record<string, any>;
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteStation,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["stations"] });
+      toast({ title: "Success", description: "Station removed successfully" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err?.message || "Failed to remove station", variant: "destructive" });
+    },
+  });
+
+  const handleDeleteStation = (id: string) => {
+    if (!window.confirm("Are you sure you want to remove this station?")) return;
+    deleteMutation.mutate(id);
   };
 
   const getStatusColor = (status: string) => {
@@ -102,9 +109,15 @@ export default function StationsPage() {
     return { price, isPeak };
   };
 
-  const onlineCount = stations.filter(s => s.status === 'online').length;
-  const offlineCount = stations.filter(s => s.status === 'offline').length;
-  const maintenanceCount = stations.filter(s => s.status === 'maintenance').length;
+  const stations = (stationsQuery.data || []) as StationData[];
+
+  const counts = useMemo(() => {
+    return {
+      online: stations.filter((s) => s.status === "online").length,
+      offline: stations.filter((s) => s.status === "offline").length,
+      maintenance: stations.filter((s) => s.status === "maintenance").length,
+    };
+  }, [stations]);
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -116,7 +129,7 @@ export default function StationsPage() {
       <div className="flex-1 p-6 space-y-6">
         <div className="flex justify-end">
           <AddStationModal 
-            onStationAdded={fetchStations}
+            onStationAdded={() => queryClient.invalidateQueries({ queryKey: ["stations"] })}
             customTrigger={<Button><Plus className="w-4 h-4 mr-2"/> Add Station</Button>}
           />
         </div>
@@ -125,19 +138,19 @@ export default function StationsPage() {
           <Card>
             <CardContent className="flex items-center gap-4 p-4">
               <div className="p-3 rounded-xl bg-success/10"><Power className="w-6 h-6 text-success" /></div>
-              <div><p className="text-sm text-muted-foreground">Online</p><p className="text-2xl font-bold">{onlineCount}</p></div>
+              <div><p className="text-sm text-muted-foreground">Online</p><p className="text-2xl font-bold">{counts.online}</p></div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="flex items-center gap-4 p-4">
               <div className="p-3 rounded-xl bg-destructive/10"><PowerOff className="w-6 h-6 text-destructive" /></div>
-              <div><p className="text-sm text-muted-foreground">Offline</p><p className="text-2xl font-bold">{offlineCount}</p></div>
+              <div><p className="text-sm text-muted-foreground">Offline</p><p className="text-2xl font-bold">{counts.offline}</p></div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="flex items-center gap-4 p-4">
               <div className="p-3 rounded-xl bg-warning/10"><Wrench className="w-6 h-6 text-warning" /></div>
-              <div><p className="text-sm text-muted-foreground">Maintenance</p><p className="text-2xl font-bold">{maintenanceCount}</p></div>
+              <div><p className="text-sm text-muted-foreground">Maintenance</p><p className="text-2xl font-bold">{counts.maintenance}</p></div>
             </CardContent>
           </Card>
         </div>
@@ -145,7 +158,12 @@ export default function StationsPage() {
         <Card>
           <CardHeader><CardTitle>My Stations</CardTitle></CardHeader>
           <CardContent>
-            {stations.length === 0 ? (
+            {stationsQuery.isLoading ? (
+              <div className="p-8">
+                <div className="h-6 w-48 bg-muted rounded-md animate-pulse mb-3" />
+                <div className="h-10 w-full bg-muted rounded-md animate-pulse" />
+              </div>
+            ) : stations.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground">No stations found. Click "Add Station" to create one.</div>
             ) : (
             <Table>
@@ -155,8 +173,12 @@ export default function StationsPage() {
                   <TableHead>Station No.</TableHead>
                   <TableHead>Station Name</TableHead>
                   <TableHead className="hidden md:table-cell">Location</TableHead>
+                  <TableHead className="hidden lg:table-cell">Connectors</TableHead>
                   <TableHead>Power (kW)</TableHead>
+                  <TableHead className="hidden lg:table-cell">Live (kW)</TableHead>
+                  <TableHead className="hidden lg:table-cell">Temp (°C)</TableHead>
                   <TableHead>Current Rate</TableHead>
+                  <TableHead className="hidden md:table-cell">OCPP</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="hidden sm:table-cell">Health</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -164,6 +186,9 @@ export default function StationsPage() {
               </TableHeader>
               <TableBody>
                 {stations.map((station) => (
+                  (() => {
+                    const t = telemetry?.[station._id];
+                    return (
                   <TableRow key={station._id}>
                     {/* Image Thumbnail */}
                     <TableCell>
@@ -174,7 +199,7 @@ export default function StationsPage() {
                             alt={station.name}
                             className="w-full h-full object-cover transition-transform group-hover:scale-110"
                             onError={(e) => {
-                              (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1593941707882-a5bba14938c7?auto=format&fit=crop&q=80&w=200";
+                              (e.target as HTMLImageElement).src = "/placeholder.svg";
                             }}
                           />
                         </div>
@@ -198,7 +223,18 @@ export default function StationsPage() {
                         <span className="truncate max-w-[200px]">{station.location}</span>
                       </div>
                     </TableCell>
+                    <TableCell className="hidden lg:table-cell">
+                      <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
+                        {station.ports || 1}
+                      </Badge>
+                    </TableCell>
                     <TableCell>{station.powerOutput || 0} kW</TableCell>
+                    <TableCell className="hidden lg:table-cell">
+                      <span className="font-mono text-sm">{t?.power ? Number(t.power).toFixed(2) : "—"}</span>
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell">
+                      <span className="font-mono text-sm">{t?.temperature ?? "—"}</span>
+                    </TableCell>
                     <TableCell>
                       {(() => {
                         const { price, isPeak } = getCurrentRate(station);
@@ -211,6 +247,11 @@ export default function StationsPage() {
                           </div>
                         );
                       })()}
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell">
+                      <Badge variant="outline" className={station.ocppConnected ? "border-success text-success" : "border-muted text-muted-foreground"}>
+                        {station.ocppConnected ? "Connected" : "Disconnected"}
+                      </Badge>
                     </TableCell>
                     <TableCell>
                       <Badge className={getStatusColor(station.status)}>{station.status}</Badge>
@@ -235,7 +276,7 @@ export default function StationsPage() {
                           
                           <AddStationModal 
                             editingStation={station}
-                            onStationAdded={fetchStations}
+                            onStationAdded={() => queryClient.invalidateQueries({ queryKey: ["stations"] })}
                             customTrigger={
                               <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="flex items-center gap-2">
                                 <Edit className="w-4 h-4" /> Update
@@ -253,6 +294,8 @@ export default function StationsPage() {
                       </DropdownMenu>
                     </TableCell>
                   </TableRow>
+                    );
+                  })()
                 ))}
               </TableBody>
             </Table>

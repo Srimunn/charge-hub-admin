@@ -1,4 +1,5 @@
 import Fault from '../models/Fault.js';
+import Station from "../models/Station.js";
 
 export const createFault = async (req, res) => {
     try {
@@ -23,17 +24,24 @@ export const createFault = async (req, res) => {
 
 export const getFaults = async (req, res) => {
     try {
-        const isDbConnected = Fault.db.readyState === 1;
-        if (isDbConnected) {
-            const faults = await Fault.find({ userId: req.user.id }).populate('stationId').sort({ createdAt: -1 });
-            res.json(faults);
-        } else {
-            // Mock data for faults
-            res.json([
-                { _id: 'f1', stationId: { name: 'Office Park Station' }, type: 'overheat', severity: 'high', message: 'Simulated Fault: overheat', status: 'active', createdAt: new Date() },
-                { _id: 'f2', stationId: { name: 'Airport Terminal 1' }, type: 'system error', severity: 'medium', message: 'Simulated Fault: system error', status: 'active', createdAt: new Date() },
-            ]);
-        }
+        const stations = await Station.find({ userId: req.user.id }).select("_id");
+        const stationIds = stations.map((s) => s._id);
+        const faults = await Fault.find({ stationId: { $in: stationIds } })
+            .populate("stationId")
+            .sort({ createdAt: -1 });
+        res.json(faults);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+export const getFaultById = async (req, res) => {
+    try {
+        const stations = await Station.find({ userId: req.user.id }).select("_id");
+        const stationIds = stations.map((s) => s._id);
+        const fault = await Fault.findOne({ _id: req.params.id, stationId: { $in: stationIds } }).populate("stationId");
+        if (!fault) return res.status(404).json({ error: "Fault not found" });
+        res.json(fault);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

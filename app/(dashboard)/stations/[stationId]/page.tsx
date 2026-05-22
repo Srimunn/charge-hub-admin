@@ -1,70 +1,65 @@
 "use client";
 
-import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { DashboardHeader } from '@/components/layout/DashboardHeader';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import {
-  ArrowLeft,
-  Radio,
-  Thermometer,
-  Cpu,
-  Disc,
-  RefreshCw,
-  PowerOff,
-  Download,
-  CheckCircle,
-  AlertTriangle,
-  XCircle,
-  Shield,
-  Target,
-  Search,
-  Wifi,
-} from 'lucide-react';
-import { mockStationHealth } from '@/data/mockData';
-import { useToast } from '@/hooks/use-toast';
-import { format } from 'date-fns';
-import { getStationById } from '@/services/api';
+import { useEffect, useMemo } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { DashboardHeader } from "@/components/layout/DashboardHeader";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ArrowLeft } from "lucide-react";
+import { getStationById } from "@/services/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { getSocket } from "@/lib/socket";
 
 export default function StationDetailPage() {
   const params = useParams();
   const stationId = params.stationId as string;
   const router = useRouter();
-  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  const [station, setStation] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const stationQuery = useQuery({
+    queryKey: ["station", stationId],
+    queryFn: () => getStationById(stationId),
+    enabled: Boolean(stationId),
+  });
+
+  useQuery({
+    queryKey: ["liveTelemetry"],
+    queryFn: async () => ({}),
+    initialData: {},
+    staleTime: Infinity,
+  });
+
+  const station = stationQuery.data as any;
+  const telemetryMap = (queryClient.getQueryData(["liveTelemetry"]) || {}) as Record<string, any>;
+  const telemetry = station?._id ? telemetryMap?.[station._id] : undefined;
 
   useEffect(() => {
-    const fetchStation = async () => {
-      try {
-        const data = await getStationById(stationId);
-        setStation(data);
-      } catch (err) {
-        console.error(err);
-        toast({ title: "Error", description: "Failed to load station details", variant: "destructive" });
-      } finally {
-        setIsLoading(false);
-      }
+    if (!stationId) return;
+    const socket = getSocket();
+    socket.emit("join_station", stationId);
+    return () => {
+      socket.emit("leave_station", stationId);
     };
+  }, [stationId]);
 
-    if (stationId) fetchStation();
-  }, [stationId, toast]);
+  const connectors = useMemo(() => {
+    if (!Array.isArray(station?.connectors)) return [];
+    return [...station.connectors].sort((a: any, b: any) => Number(a.connectorId) - Number(b.connectorId));
+  }, [station?.connectors]);
 
-  if (isLoading) {
-    return <div className="p-8 text-center">Loading station details...</div>;
+  if (stationQuery.isLoading) {
+    return <div className="p-8 text-center text-muted-foreground">Loading station details…</div>;
   }
 
-  if (!station) {
+  if (stationQuery.isError || !station) {
     return (
       <div className="flex flex-col min-h-screen">
         <DashboardHeader title="Station Not Found" />
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <h2 className="text-xl font-semibold mb-2">Station not found</h2>
-            <Button onClick={() => router.push('/stations')}>
+            <Button onClick={() => router.push("/stations")}>
               <ArrowLeft className="w-4 h-4 mr-2" /> Back to Stations
             </Button>
           </div>
@@ -73,248 +68,83 @@ export default function StationDetailPage() {
     );
   }
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'operational':
-        return <CheckCircle className="w-5 h-5 text-success" />;
-      case 'degraded':
-        return <AlertTriangle className="w-5 h-5 text-warning" />;
-      case 'fault':
-        return <XCircle className="w-5 h-5 text-destructive" />;
-      default:
-        return null;
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'operational':
-        return 'bg-success/10 text-success border-success/20';
-      case 'degraded':
-        return 'bg-warning/10 text-warning border-warning/20';
-      case 'fault':
-        return 'bg-destructive/10 text-destructive border-destructive/20';
-      default:
-        return 'bg-muted text-muted-foreground';
-    }
-  };
-
-  const handleRestart = () => {
-    toast({
-      title: 'Restarting Station',
-      description: `Station ${station.id} is being restarted...`,
-    });
-  };
-
-  const handleDisableCharging = () => {
-    toast({
-      title: 'Charging Disabled',
-      description: `Charging has been disabled on ${station.id}`,
-    });
-  };
-
-  const handleFirmwareUpdate = () => {
-    toast({
-      title: 'Firmware Update Started',
-      description: `Pushing firmware update to ${station.id}...`,
-    });
-  };
-
   return (
     <div className="flex flex-col min-h-screen">
-      <DashboardHeader 
-        title={station.name} 
-        subtitle={station.id}
-      />
-      
+      <DashboardHeader title={station.name} subtitle={station.location} />
       <div className="flex-1 p-6 space-y-6">
-        {/* Back Button */}
-        <Button variant="ghost" onClick={() => router.push('/stations')} className="gap-2">
-          <ArrowLeft className="w-4 h-4" /> Back to Stations
-        </Button>
-
-        {/* Status Overview */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Station Overview</span>
-                <Badge className={
-                  station.status === 'online' ? 'bg-success text-success-foreground' :
-                  station.status === 'offline' ? 'bg-destructive text-destructive-foreground' :
-                  'bg-warning text-warning-foreground'
-                }>
-                  {station.status.toUpperCase()}
-                </Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="p-4 rounded-lg bg-secondary/50">
-                  <p className="text-sm text-muted-foreground">Location</p>
-                  <p className="font-medium truncate">{station.location}</p>
-                </div>
-                <div className="p-4 rounded-lg bg-secondary/50">
-                  <p className="text-sm text-muted-foreground">Firmware</p>
-                  <p className="font-medium">v{station.firmwareVersion}</p>
-                </div>
-                <div className="p-4 rounded-lg bg-secondary/50">
-                  <p className="text-sm text-muted-foreground">Total Energy</p>
-                  <p className="font-medium">{station.totalEnergy.toLocaleString()} kWh</p>
-                </div>
-                <div className="p-4 rounded-lg bg-secondary/50">
-                  <p className="text-sm text-muted-foreground">Total Revenue</p>
-                  <p className="font-medium">₹{station.totalRevenue.toLocaleString()}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Temperature */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Thermometer className="w-5 h-5" />
-                Temperature
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-center">
-                <div className={`text-5xl font-bold ${
-                  station.temperature > 50 ? 'text-destructive' :
-                  station.temperature > 40 ? 'text-warning' :
-                  'text-success'
-                }`}>
-                  {station.temperature}°C
-                </div>
-              </div>
-              <p className="text-center text-sm text-muted-foreground mt-2">
-                {station.temperature > 50 ? 'Critical' :
-                 station.temperature > 40 ? 'Elevated' :
-                 'Normal'}
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Component Status */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Disc className="w-5 h-5" />
-                Charging Coil
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className={`flex items-center gap-3 p-4 rounded-lg border ${getStatusColor(station.coilStatus)}`}>
-                {getStatusIcon(station.coilStatus)}
-                <span className="font-medium capitalize">{station.coilStatus}</span>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Radio className="w-5 h-5" />
-                Sensors
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className={`flex items-center gap-3 p-4 rounded-lg border ${getStatusColor(station.sensorStatus)}`}>
-                {getStatusIcon(station.sensorStatus)}
-                <span className="font-medium capitalize">{station.sensorStatus}</span>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Cpu className="w-5 h-5" />
-                Power Electronics
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className={`flex items-center gap-3 p-4 rounded-lg border ${getStatusColor(station.powerElectronicsStatus)}`}>
-                {getStatusIcon(station.powerElectronicsStatus)}
-                <span className="font-medium capitalize">{station.powerElectronicsStatus}</span>
-              </div>
-            </CardContent>
+        <div className="flex items-center justify-between">
+          <Button variant="outline" onClick={() => router.push("/stations")} className="gap-2">
+            <ArrowLeft className="w-4 h-4" /> Back to Stations
+          </Button>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="font-mono font-bold">{station.stationNumber}</Badge>
+            <Badge variant="outline" className={station.ocppConnected ? "border-success text-success" : "border-muted text-muted-foreground"}>
+              {station.ocppConnected ? "OCPP Connected" : "OCPP Disconnected"}
+            </Badge>
+            <Badge variant="outline" className={station.status === "online" ? "border-success text-success" : "border-destructive text-destructive"}>
+              {station.status}
+            </Badge>
           </div>
         </div>
 
-        {/* Health & Diagnostics */}
-        {(() => {
-          const health = mockStationHealth.find(h => h.stationId === station.id);
-          if (!health) return null;
-          const items = [
-            { label: 'Alignment System', value: health.alignment, icon: <Target className="w-5 h-5" />, ok: health.alignment === 'ok' },
-            { label: 'FOD System', value: health.fod, icon: <Search className="w-5 h-5" />, ok: health.fod === 'ok' },
-            { label: 'Thermal Status', value: health.thermal, icon: <Thermometer className="w-5 h-5" />, ok: health.thermal === 'normal' },
-            { label: 'Communication', value: health.communication, icon: <Wifi className="w-5 h-5" />, ok: health.communication === 'online' },
-          ];
-          return (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Shield className="w-5 h-5" />
-                  Health & Diagnostics
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {items.map(item => (
-                    <div key={item.label} className={`flex items-center gap-3 p-4 rounded-lg border ${item.ok ? 'bg-success/10 border-success/20' : 'bg-destructive/10 border-destructive/20'}`}>
-                      {item.icon}
-                      <div>
-                        <p className="text-xs text-muted-foreground">{item.label}</p>
-                        <p className={`font-medium capitalize ${item.ok ? 'text-success' : 'text-destructive'}`}>
-                          {item.ok ? (item.label === 'FOD System' || item.label === 'Alignment System' ? 'OK' : item.value) : (item.label === 'FOD System' || item.label === 'Alignment System' ? 'Fault' : item.value)}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="p-4 rounded-lg bg-secondary/50">
-                    <p className="text-sm text-muted-foreground">Last Fault Time</p>
-                    <p className="font-medium">{health.lastFaultTime ? format(new Date(health.lastFaultTime), 'MMM dd, HH:mm') : 'No faults recorded'}</p>
-                  </div>
-                  <div className="p-4 rounded-lg bg-secondary/50">
-                    <p className="text-sm text-muted-foreground">Last Maintenance Action</p>
-                    <p className="font-medium">{health.lastMaintenanceAction || 'None'}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })()}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle>Live Telemetry</CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="bg-muted/30 rounded-lg p-3">
+                <p className="text-xs text-muted-foreground">Voltage</p>
+                <p className="text-lg font-semibold font-mono">{telemetry?.voltage ?? "—"}</p>
+              </div>
+              <div className="bg-muted/30 rounded-lg p-3">
+                <p className="text-xs text-muted-foreground">Current</p>
+                <p className="text-lg font-semibold font-mono">{telemetry?.current ?? "—"}</p>
+              </div>
+              <div className="bg-muted/30 rounded-lg p-3">
+                <p className="text-xs text-muted-foreground">Power (kW)</p>
+                <p className="text-lg font-semibold font-mono">{telemetry?.power ?? "—"}</p>
+              </div>
+              <div className="bg-muted/30 rounded-lg p-3">
+                <p className="text-xs text-muted-foreground">Energy Delivered</p>
+                <p className="text-lg font-semibold font-mono">{telemetry?.energyDelivered ?? "—"}</p>
+              </div>
+              <div className="bg-muted/30 rounded-lg p-3">
+                <p className="text-xs text-muted-foreground">Temperature</p>
+                <p className="text-lg font-semibold font-mono">{telemetry?.temperature ?? "—"}</p>
+              </div>
+              <div className="bg-muted/30 rounded-lg p-3">
+                <p className="text-xs text-muted-foreground">Transaction</p>
+                <p className="text-lg font-semibold font-mono">{telemetry?.transactionId ?? "—"}</p>
+              </div>
+            </CardContent>
+          </Card>
 
-        {/* Controls */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Station Controls</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-4">
-              <Button onClick={handleRestart} className="gap-2">
-                <RefreshCw className="w-4 h-4" />
-                Restart Station
-              </Button>
-              <Button onClick={handleDisableCharging} variant="outline" className="gap-2">
-                <PowerOff className="w-4 h-4" />
-                Disable Charging
-              </Button>
-              <Button onClick={handleFirmwareUpdate} variant="secondary" className="gap-2">
-                <Download className="w-4 h-4" />
-                Push Firmware Update
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Connectors</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {connectors.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No connector status yet.</div>
+              ) : (
+                connectors.map((c: any) => (
+                  <div key={String(c.connectorId)} className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">#{c.connectorId}</span>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">{c.status || "Unknown"}</Badge>
+                      {c.errorCode && c.errorCode !== "NoError" ? (
+                        <Badge variant="outline" className="border-destructive text-destructive">{c.errorCode}</Badge>
+                      ) : null}
+                    </div>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
 }
+

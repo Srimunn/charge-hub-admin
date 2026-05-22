@@ -1,35 +1,42 @@
-import Session from '../models/Session.js';
 import Station from '../models/Station.js';
+import Transaction from "../models/Transaction.js";
+import Telemetry from "../models/Telemetry.js";
+
+const calculateCurrentRate = (station, at = new Date()) => {
+    let pricePerKwh = station?.basePricePerKwh || 0;
+    if (station?.dynamicPricing?.length) {
+        const hh = String(at.getHours()).padStart(2, "0");
+        const mm = String(at.getMinutes()).padStart(2, "0");
+        const t = `${hh}:${mm}`;
+        for (const rule of station.dynamicPricing) {
+            if (rule?.startTime && rule?.endTime && t >= rule.startTime && t <= rule.endTime) {
+                pricePerKwh = rule.pricePerKwh;
+                break;
+            }
+        }
+    }
+    const convenienceFee = station?.convenienceFee || 0;
+    const tax = station?.tax || 0;
+    return { pricePerKwh, convenienceFee, tax };
+};
 
 export const startSession = async (req, res) => {
     try {
         const { stationId } = req.body;
         if (!stationId) return res.status(400).json({ error: "stationId is required" });
 
-        const session = new Session({
-            stationId,
-            userId: req.user.id,
-            startTime: new Date(),
-            status: "active",
-            energyUsed: 0,
-            cost: 0
-        });
-
-        await session.save();
-
-        // 1. Get the station details
         const station = await Station.findById(stationId);
-        if (station && req.mqttService) {
-            // 2. Notify the station via MQTT
-            req.mqttService.publish(`stations/${station.stationNumber}/command`, {
-                action: "start_charging",
-                sessionId: session._id,
-                timestamp: new Date()
-            });
-            console.log(`🔌 [MQTT] Start command sent to station: ${station.stationNumber}`);
+        if (!station) return res.status(404).json({ error: "Station not found" });
+
+        const ocpp = req.ocppCentralSystem;
+        if (!ocpp) return res.status(500).json({ error: "OCPP Central System not available" });
+        if (!ocpp.isConnected(station.stationNumber)) {
+            return res.status(409).json({ error: "Station not connected via OCPP" });
         }
 
-        res.status(201).json(session);
+        const idTag = `user:${req.user.id}`;
+        const result = await ocpp.sendCall(station.stationNumber, "RemoteStartTransaction", { connectorId: 1, idTag });
+        res.status(201).json({ status: "accepted", stationId: station._id, stationNumber: station.stationNumber, result });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -38,60 +45,22 @@ export const startSession = async (req, res) => {
 export const stopSession = async (req, res) => {
     try {
         const { id } = req.params; // sessionId
-        const session = await Session.findById(id);
+        const query = id?.length === 24 ? { _id: id } : { ocppTransactionId: Number(id) };
+        const tx = await Transaction.findOne(query).populate("stationId");
+        if (!tx) return res.status(404).json({ error: "Transaction not found" });
+        if (tx.status === "completed") return res.status(400).json({ error: "Transaction already completed" });
 
-        if (!session) return res.status(404).json({ error: "Session not found" });
-        if (session.status === "completed") return res.status(400).json({ error: "Session already completed" });
+        const station = tx.stationId;
+        const ocpp = req.ocppCentralSystem;
+        if (!ocpp) return res.status(500).json({ error: "OCPP Central System not available" });
+        if (!ocpp.isConnected(tx.stationNumber)) return res.status(409).json({ error: "Station not connected via OCPP" });
 
-        session.endTime = new Date();
-        session.status = "completed";
+        const result = await ocpp.sendCall(tx.stationNumber, "RemoteStopTransaction", { transactionId: tx.ocppTransactionId });
 
-        const station = await Station.findById(session.stationId);
-        
-        const durationHours = (session.endTime - session.startTime) / (1000 * 60 * 60);
-        
-        let powerOutput = station && station.powerOutput ? station.powerOutput : 50;
-        if (session.energyUsed === 0 && durationHours > 0) {
-            session.energyUsed = Math.max(durationHours * powerOutput, 0.5);
-        }
+        tx.stopRequestedAt = new Date();
+        await tx.save();
 
-        let pricePerKwh = station?.basePricePerKwh || 15; // default ₹15 if not set
-        
-        if (station && station.dynamicPricing && station.dynamicPricing.length > 0) {
-            const currentHour = session.endTime.getHours();
-            const currentMinute = session.endTime.getMinutes();
-            const currentTimeStr = `${currentHour.toString().padStart(2, '0')}:${currentMinute.toString().padStart(2, '0')}`;
-
-            for (let rule of station.dynamicPricing) {
-                if (rule.startTime && rule.endTime && currentTimeStr >= rule.startTime && currentTimeStr <= rule.endTime) {
-                    pricePerKwh = rule.pricePerKwh;
-                    break;
-                }
-            }
-        }
-
-        const convenienceFee = station?.convenienceFee || 0;
-        const tax = station?.tax || 0;
-
-        const energyCost = session.energyUsed * pricePerKwh;
-        session.appliedPrice = pricePerKwh;
-        session.convenienceFee = convenienceFee;
-        session.tax = tax;
-        session.cost = energyCost + convenienceFee + tax;
-
-        await session.save();
-
-        // Notify the station via MQTT
-        if (station && req.mqttService) {
-            req.mqttService.publish(`stations/${station.stationNumber}/command`, {
-                action: "stop_charging",
-                sessionId: session._id,
-                timestamp: new Date()
-            });
-            console.log(`🔌 [MQTT] Stop command sent to station: ${station.stationNumber}`);
-        }
-
-        res.json(session);
+        res.json({ status: "accepted", transactionId: tx.ocppTransactionId, result });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -99,20 +68,10 @@ export const stopSession = async (req, res) => {
 
 export const getSessions = async (req, res) => {
     try {
-        const isDbConnected = Session.db.readyState === 1;
-        if (isDbConnected) {
-            const sessions = await Session.find({ userId: req.user.id })
-                                          .populate('stationId')
-                                          .sort({ startTime: -1 });
-            res.json(sessions);
-        } else {
-            // Mock data for sessions
-            res.json([
-                { _id: 's1', stationId: { name: 'Downtown Plaza Station' }, energyUsed: 45, cost: 675, status: 'completed', startTime: new Date(Date.now() - 86400000) },
-                { _id: 's2', stationId: { name: 'Mall Parking Level 2' }, energyUsed: 22, cost: 330, status: 'active', startTime: new Date(Date.now() - 3600000) },
-                { _id: 's3', stationId: { name: 'Airport Terminal 1' }, energyUsed: 120, cost: 1800, status: 'completed', startTime: new Date(Date.now() - 172800000) },
-            ]);
-        }
+        const stations = await Station.find({ userId: req.user.id }).select("_id");
+        const stationIds = stations.map((s) => s._id);
+        const transactions = await Transaction.find({ stationId: { $in: stationIds } }).populate("stationId").sort({ startTime: -1 });
+        res.json(transactions);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -120,35 +79,61 @@ export const getSessions = async (req, res) => {
 
 export const getLiveSessions = async (req, res) => {
     try {
-        const activeSessions = await Session.find({ userId: req.user.id, status: 'active' }).populate('stationId');
-        
-        const liveData = activeSessions.map(session => {
-            const station = session.stationId;
-            const durationHrs = (new Date() - new Date(session.startTime)) / (1000 * 60 * 60);
-            const powerKw = station?.powerOutput || 50;
-            const energy = (durationHrs * powerKw).toFixed(2);
-            
-            // Randomly fluctuate voltage and current slightly for "live" feel
-            const voltage = 390 + Math.floor(Math.random() * 20); // 390 - 410 V
-            const current = Math.floor((powerKw * 1000) / voltage);
-            const temperature = 35 + Math.floor(Math.random() * 15); // 35 - 50 C
-            
+        const stations = await Station.find({ userId: req.user.id }).select("_id");
+        const stationIds = stations.map((s) => s._id);
+        const active = await Transaction.find({ stationId: { $in: stationIds }, status: "active" }).populate("stationId").sort({ startTime: -1 });
+
+        const stationNumbers = active.map((t) => t.stationNumber);
+        const latestTelemetry = await Telemetry.aggregate([
+            { $match: { stationId: { $in: stationNumbers } } },
+            { $sort: { timestamp: -1 } },
+            { $group: { _id: { stationId: "$stationId", transactionId: "$transactionId" }, doc: { $first: "$$ROOT" } } }
+        ]);
+
+        const telIndex = new Map();
+        for (const row of latestTelemetry) {
+            const key = `${row._id.stationId}:${row._id.transactionId || ""}`;
+            telIndex.set(key, row.doc);
+        }
+
+        const live = active.map((tx) => {
+            const station = tx.stationId;
+            const tel = telIndex.get(`${tx.stationNumber}:${tx.ocppTransactionId}`) || telIndex.get(`${tx.stationNumber}:`);
+            const voltage = tel?.voltage ?? 0;
+            const current = tel?.current ?? 0;
+            const powerOutput = tel?.power ?? 0;
+            const energyDelivered = tel?.energyConsumed ?? tx.energyUsed ?? 0;
+            const temperature = tel?.temperature ?? 0;
+
+            const sessionTimeSeconds = Math.max(Math.floor((Date.now() - new Date(tx.startTime).getTime()) / 1000), 0);
+            const { pricePerKwh, convenienceFee, tax } = calculateCurrentRate(station, new Date());
+            const chargingCost = energyDelivered * pricePerKwh + convenienceFee + tax;
+
+            const connectorStatus = Array.isArray(station?.connectors)
+                ? station.connectors.find((c) => Number(c.connectorId) === Number(tx.connectorId))?.status
+                : undefined;
+
             return {
-                id: session._id,
-                stationNumber: station?.stationNumber || "UNKNOWN",
-                userVehicleId: `EV-${req.user.id.substring(0, 4).toUpperCase()}`,
+                id: String(tx._id),
+                stationNumber: tx.stationNumber,
+                userVehicleId: tx.idTag,
+                connectorId: tx.connectorId,
+                transactionId: tx.ocppTransactionId,
+                voltage,
+                current,
+                powerOutput,
+                chargingSpeed: powerOutput,
+                energyDelivered,
+                temperature,
+                sessionTimeSeconds,
+                chargingCost,
+                connectorStatus: connectorStatus || "Unknown",
                 chargingStatus: "Charging",
-                voltage: voltage,
-                current: current,
-                powerOutput: powerKw,
-                chargingSpeed: powerKw,
-                energyDelivered: parseFloat(energy),
-                connectorStatus: "Locked",
-                temperature: temperature
+                ocppStatus: station?.ocppConnected ? "Connected" : "Disconnected"
             };
         });
 
-        res.json(liveData);
+        res.json(live);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
