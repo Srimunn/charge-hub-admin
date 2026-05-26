@@ -17,11 +17,19 @@ export const getImageUrl = (imagePath: string | null | undefined) => {
   return `${cleanBase}${cleanPath}`;
 };
 
-const getToken = () => {
+export const getToken = () => {
   if (typeof window !== "undefined") {
-    return localStorage.getItem("token");
+    const token = localStorage.getItem("token");
+    if (!token || token === "null" || token === "undefined") return null;
+    return token.trim();
   }
   return null;
+};
+
+const clearToken = () => {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("token");
+  }
 };
 
 const authHeaders = () => {
@@ -29,6 +37,14 @@ const authHeaders = () => {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
+};
+
+const handleAuthError = async (res: Response) => {
+  if (res.status === 401) {
+    clearToken();
+    throw new Error("Authentication failed. Please log in again.");
+  }
+  throw new Error(await res.text());
 };
 
 // AUTH
@@ -49,7 +65,9 @@ export const loginUser = async (data: any) => {
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error(await res.text());
-  return res.json();
+  const json = await res.json();
+  if (!json?.token) throw new Error('Authentication token not received');
+  return json;
 };
 
 export const verifyOTP = async (data: any) => {
@@ -59,7 +77,9 @@ export const verifyOTP = async (data: any) => {
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error(await res.text());
-  return res.json();
+  const json = await res.json();
+  if (!json?.token) throw new Error('Authentication token not received');
+  return json;
 };
 
 // GET dashboard KPIs
@@ -87,7 +107,9 @@ export const getStationById = async (id: string) => {
 // CREATE station
 export const createStation = async (data: any) => {
   const token = getToken();
-  const headers: any = token ? { Authorization: `Bearer ${token}` } : {};
+  if (!token) throw new Error("Authentication required. Please log in again.");
+
+  const headers: any = { Authorization: `Bearer ${token}` };
 
   const formData = new FormData();
   formData.append("name", data.name);
@@ -115,13 +137,15 @@ export const createStation = async (data: any) => {
     headers,
     body: formData,
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) await handleAuthError(res);
   return res.json();
 };
 
 export const updateStation = async (id: string, data: any) => {
   const token = getToken();
-  const headers: any = token ? { Authorization: `Bearer ${token}` } : {};
+  if (!token) throw new Error("Authentication required. Please log in again.");
+
+  const headers: any = { Authorization: `Bearer ${token}` };
 
   const formData = new FormData();
   if (data.name) formData.append("name", data.name);
@@ -149,7 +173,7 @@ export const updateStation = async (id: string, data: any) => {
     headers,
     body: formData,
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) await handleAuthError(res);
   return res.json();
 };
 

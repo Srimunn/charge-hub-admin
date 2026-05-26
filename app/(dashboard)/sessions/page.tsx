@@ -67,8 +67,8 @@ export default function SessionsPage() {
     }
   };
 
-  const sessions = (sessionsQuery.data || []) as any[];
-  const liveSessions = (liveQuery.data || []) as any[];
+  const sessions = useMemo(() => (sessionsQuery.data ?? []) as any[], [sessionsQuery.data]);
+  const liveSessions = useMemo(() => (liveQuery.data ?? []) as any[], [liveQuery.data]);
 
   const summary = useMemo(() => {
     const active = sessions.filter((s) => s.status === "active");
@@ -132,7 +132,7 @@ export default function SessionsPage() {
              <CardContent className="flex flex-col items-center justify-center p-12 text-muted-foreground">
                <Activity className="w-12 h-12 mb-4 opacity-50" />
                <p className="text-lg font-medium">No Active Sessions</p>
-               <p className="text-sm text-center max-w-sm mt-2">Currently, there are no live charging sessions. Click 'Simulate Start Session' to generate activity.</p>
+               <p className="text-sm text-center max-w-sm mt-2">Currently, there are no live charging sessions. Click &apos;Simulate Start Session&apos; to generate activity.</p>
              </CardContent>
            </Card>
         ) : (

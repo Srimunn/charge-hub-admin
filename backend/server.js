@@ -20,6 +20,7 @@ import paymentRoutes from "./routes/paymentRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 
 import http from "http";
@@ -29,6 +30,14 @@ import OcppCentralSystem from "./services/ocppCentralSystem.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, ".env") });
+
+// Ensure uploads directory exists to avoid ENOENT when saving files
+try {
+  fs.mkdirSync(path.join(__dirname, "uploads"), { recursive: true });
+  console.log("✅ Ensured uploads directory exists");
+} catch (e) {
+  console.warn("Could not create uploads directory:", e?.message || e);
+}
 
 const app = express();
 const server = http.createServer(app);

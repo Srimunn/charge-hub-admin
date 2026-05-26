@@ -1,37 +1,40 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
+const jwtSecret = process.env.JWT_SECRET || 'fallback_secret';
+
 export const protect = async (req, res, next) => {
     let token;
 
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+    if (req.headers.authorization && req.headers.authorization.toLowerCase().startsWith('bearer ')) {
+        token = req.headers.authorization.split(' ')[1]?.trim();
+        if (!token) {
+            return res.status(401).json({ error: 'Not authorized, invalid token format' });
+        }
+
         try {
-            // Get token from header
-            token = req.headers.authorization.split(' ')[1];
+            const decoded = jwt.verify(token, jwtSecret);
 
-            // Verify token
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret');
-
-            // Get user from the token
             const isDbConnected = User.db.readyState === 1;
             if (!isDbConnected) {
-                return res.status(503).json({ error: "Database not connected" });
+                return res.status(503).json({ error: 'Database not connected' });
             }
 
             req.user = await User.findById(decoded.id).select('-password');
-
             if (!req.user) {
                 return res.status(401).json({ error: 'Not authorized, user not found' });
             }
 
             return next();
         } catch (error) {
-            console.error(error);
-            return res.status(401).json({ error: 'Not authorized, token failed' });
+            const message = error?.name === 'TokenExpiredError'
+                ? 'Token expired, please log in again'
+                : 'Invalid token, please log in again';
+
+            console.warn('Auth token validation failed:', error?.message || error);
+            return res.status(401).json({ error: message });
         }
     }
 
-    if (!token) {
-        return res.status(401).json({ error: 'Not authorized, no token' });
-    }
+    return res.status(401).json({ error: 'Not authorized, no token' });
 };

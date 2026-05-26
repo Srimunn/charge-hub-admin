@@ -109,7 +109,7 @@ export default function StationsPage() {
     return { price, isPeak };
   };
 
-  const stations = (stationsQuery.data || []) as StationData[];
+  const stations = useMemo(() => (stationsQuery.data ?? []) as StationData[], [stationsQuery.data]);
 
   const counts = useMemo(() => {
     return {
@@ -164,7 +164,7 @@ export default function StationsPage() {
                 <div className="h-10 w-full bg-muted rounded-md animate-pulse" />
               </div>
             ) : stations.length === 0 ? (
-              <div className="p-8 text-center text-muted-foreground">No stations found. Click "Add Station" to create one.</div>
+              <div className="p-8 text-center text-muted-foreground">No stations found. Click &quot;Add Station&quot; to create one.</div>
             ) : (
             <Table>
               <TableHeader>

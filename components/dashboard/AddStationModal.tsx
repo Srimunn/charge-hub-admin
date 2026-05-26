@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { createStation, updateStation, getImageUrl } from '@/services/api';
+import { createStation, updateStation, getImageUrl, getToken } from '@/services/api';
 import { Plus, MapPin, Zap, Minus, UploadCloud, X, Trash2, Clock, Edit } from 'lucide-react';
 import {
   Dialog,
@@ -123,7 +123,7 @@ export const AddStationModal = ({
     if (!isFormValid) return;
     setIsLoading(true);
     try {
-      if (!localStorage.getItem('token')) {
+      if (!getToken()) {
         throw new Error('Authentication required. Please log in.');
       }
 

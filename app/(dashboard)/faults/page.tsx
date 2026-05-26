@@ -21,7 +21,7 @@ export default function FaultsPage() {
   const queryClient = useQueryClient();
 
   const faultsQuery = useQuery({ queryKey: ["faults"], queryFn: getFaults });
-  const faults = (faultsQuery.data || []) as any[];
+  const faults = useMemo(() => (faultsQuery.data ?? []) as any[], [faultsQuery.data]);
 
   const resolveMutation = useMutation({
     mutationFn: resolveFault,

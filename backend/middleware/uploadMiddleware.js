@@ -1,5 +1,6 @@
 import multer from 'multer';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -9,10 +10,20 @@ const __dirname = path.dirname(__filename);
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     // Save to the absolute path of backend/uploads
-    cb(null, path.join(__dirname, '../uploads/'));
+    const dir = path.join(__dirname, '../uploads/');
+    try {
+      // Ensure uploads directory exists (recursive safe)
+      fs.mkdirSync(dir, { recursive: true });
+    } catch (e) {
+      // ignore mkdir errors; multer will surface if needed
+    }
+    cb(null, dir);
   },
   filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${file.originalname}`);
+    // Sanitize filename: replace spaces and unsafe chars with underscores
+    const orig = String(file.originalname || 'upload');
+    const safe = orig.replace(/[^a-zA-Z0-9.\-]/g, '_');
+    cb(null, `${Date.now()}-${safe}`);
   },
 });
 

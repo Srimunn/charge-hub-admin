@@ -47,7 +47,7 @@ export function EVBannerCards() {
                 <span className="text-[10px] uppercase tracking-widest text-white/70 font-semibold">Insight</span>
               </div>
               <p className="text-white text-sm font-semibold leading-snug drop-shadow-lg">
-                "{banner.quote}"
+                &quot;{banner.quote}&quot;
               </p>
             </div>
           </CardContent>
