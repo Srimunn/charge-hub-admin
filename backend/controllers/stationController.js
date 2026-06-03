@@ -32,9 +32,31 @@ export const getStations = async (req, res) => {
     }
 };
 
+// @desc    Get all stations (public for mobile app)
+// @route   GET /api/stations/public
+// @access  Public
+export const getAllStationsPublic = async (req, res) => {
+    try {
+        const stations = await Station.find({}).sort({ createdAt: -1 });
+        res.status(200).json(stations);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
 export const getStationById = async (req, res) => {
     try {
         const station = await Station.findOne({ _id: req.params.id, userId: req.user.id });
+        if (!station) return res.status(404).json({ error: "Station not found" });
+        res.status(200).json(station);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+export const getStationByIdPublic = async (req, res) => {
+    try {
+        const station = await Station.findById(req.params.id);
         if (!station) return res.status(404).json({ error: "Station not found" });
         res.status(200).json(station);
     } catch (err) {

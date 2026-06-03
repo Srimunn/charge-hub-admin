@@ -26,18 +26,18 @@ export default function SettingsPage() {
   const { toast } = useToast();
 
   const [profile, setProfile] = useState({
-    name: 'Admin User',
-    email: 'admin@evcharge.com',
-    phone: '+1 (555) 123-4567',
+    name: 'Amit Desai',
+    email: 'amit.desai@chargehub.in',
+    phone: '+91 98765 43210',
     role: 'System Administrator',
   });
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       setProfile({
-        name: localStorage.getItem('userName') || 'Admin User',
-        email: localStorage.getItem('userEmail') || 'admin@evcharge.com',
-        phone: localStorage.getItem('userMobile') || '+1 (555) 123-4567',
+        name: localStorage.getItem('userName') || 'Amit Desai',
+        email: localStorage.getItem('userEmail') || 'amit.desai@chargehub.in',
+        phone: localStorage.getItem('userMobile') || '+91 98765 43210',
         role: 'System Administrator',
       });
     }

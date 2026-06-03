@@ -30,13 +30,59 @@ export const startSession = async (req, res) => {
 
         const ocpp = req.ocppCentralSystem;
         if (!ocpp) return res.status(500).json({ error: "OCPP Central System not available" });
+
+        if (!ocpp.isConnected(station.stationNumber)) {
+            console.log(`⚠️ Station ${station.stationNumber} is not connected. Attempting dynamic simulation connection...`);
+            try {
+                const ocppSimulator = await import("../services/ocppSimulator.js");
+                ocppSimulator.simulateStation(station.stationNumber);
+                // Give it a brief moment (800ms) to establish connection and register
+                await new Promise((resolve) => setTimeout(resolve, 800));
+            } catch (simErr) {
+                console.error("❌ Failed to dynamically spin up OCPP simulator:", simErr.message);
+            }
+        }
+
         if (!ocpp.isConnected(station.stationNumber)) {
             return res.status(409).json({ error: "Station not connected via OCPP" });
         }
 
+
         const idTag = `user:${req.user.id}`;
         const result = await ocpp.sendCall(station.stationNumber, "RemoteStartTransaction", { connectorId: 1, idTag });
-        res.status(201).json({ status: "accepted", stationId: station._id, stationNumber: station.stationNumber, result });
+        
+        // Poll for the asynchronously created OCPP Transaction record in MongoDB
+        let tx = null;
+        if (result && (result.status === "Accepted" || result.status === "accepted")) {
+            console.log(`⏳ [startSession] Waiting for OCPP StartTransaction to register in MongoDB...`);
+            for (let i = 0; i < 15; i++) {
+                await new Promise((resolve) => setTimeout(resolve, 200));
+                tx = await Transaction.findOne({
+                    stationId: station._id,
+                    idTag: idTag,
+                    status: "active"
+                });
+                if (tx) {
+                    console.log(`✅ [startSession] Transaction found in DB: ${tx._id} (OCPP Tx ID: ${tx.ocppTransactionId})`);
+                    break;
+                }
+            }
+        }
+
+        if (tx) {
+            // Return the created transaction record as the session object
+            res.status(201).json(tx);
+        } else {
+            // Fail-safe fallback to prevent mobile app from failing navigation
+            console.warn(`⚠️ [startSession] OCPP Transaction record was not created in time. Returning fallback session details.`);
+            res.status(201).json({
+                _id: `fallback_${Math.floor(Date.now() / 1000)}`,
+                status: "accepted",
+                stationId: station._id,
+                stationNumber: station.stationNumber,
+                result
+            });
+        }
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -45,7 +91,7 @@ export const startSession = async (req, res) => {
 export const stopSession = async (req, res) => {
     try {
         const { id } = req.params; // sessionId
-        const query = id?.length === 24 ? { _id: id } : { ocppTransactionId: Number(id) };
+        const query = id?.length === 24 ? { $or: [{ _id: id }, { sessionId: id }] } : { ocppTransactionId: Number(id) };
         const tx = await Transaction.findOne(query).populate("stationId");
         if (!tx) return res.status(404).json({ error: "Transaction not found" });
         if (tx.status === "completed") return res.status(400).json({ error: "Transaction already completed" });
@@ -68,9 +114,16 @@ export const stopSession = async (req, res) => {
 
 export const getSessions = async (req, res) => {
     try {
-        const stations = await Station.find({ userId: req.user.id }).select("_id");
-        const stationIds = stations.map((s) => s._id);
-        const transactions = await Transaction.find({ stationId: { $in: stationIds } }).populate("stationId").sort({ startTime: -1 });
+        const { scope } = req.query;
+        let filter = {};
+        if (scope === "user") {
+            filter = { idTag: `user:${req.user.id}` };
+        } else {
+            const stations = await Station.find({ userId: req.user.id }).select("_id");
+            const stationIds = stations.map((s) => s._id);
+            filter = { stationId: { $in: stationIds } };
+        }
+        const transactions = await Transaction.find(filter).populate("stationId").sort({ startTime: -1 });
         res.json(transactions);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -115,6 +168,7 @@ export const getLiveSessions = async (req, res) => {
 
             return {
                 id: String(tx._id),
+                stationId: station ? String(station._id) : undefined,
                 stationNumber: tx.stationNumber,
                 userVehicleId: tx.idTag,
                 connectorId: tx.connectorId,

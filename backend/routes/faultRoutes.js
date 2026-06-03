@@ -1,5 +1,5 @@
 import express from "express";
-import { createFault, getFaults, getFaultById, resolveFault } from "../controllers/faultController.js";
+import { createFault, getFaults, getFaultById, resolveFault, simulateFault } from "../controllers/faultController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
@@ -10,6 +10,9 @@ router.get("/:id", protect, getFaultById);
 
 // CREATE a fault
 router.post("/", protect, createFault);
+
+// SIMULATE a fault
+router.post("/simulate", protect, simulateFault);
 
 // RESOLVE a fault
 router.put("/:id", protect, resolveFault);

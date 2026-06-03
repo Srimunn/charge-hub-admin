@@ -2,7 +2,10 @@ import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
 const generateToken = (id) => {
-    return jwt.sign({ id }, process.env.JWT_SECRET || 'fallback_secret', { expiresIn: '7d' });
+    if (!process.env.JWT_SECRET) {
+        throw new Error('JWT_SECRET is not set in environment variables');
+    }
+    return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 };
 
 // Global mock memory for OTPs (in real prod, use Redis)
@@ -10,6 +13,7 @@ const otpStore = new Map();
 
 export const registerUser = async (req, res) => {
     try {
+        console.log('📥 INBOUND REQUEST: POST /auth/register', { ...req.body, password: '***' });
         const { name, email, password, mobile } = req.body;
 
         if (!name || !email || !password || !mobile) {
@@ -28,6 +32,13 @@ export const registerUser = async (req, res) => {
         const user = new User({ name, email, password, mobile });
         await user.save();
 
+        // Set mock OTP in otpStore for the verification step
+        otpStore.set(email, {
+            otp: "123456",
+            userId: user._id,
+            type: "register"
+        });
+
         return res.status(201).json({ 
             message: "Registration successful. You can now login.",
             user: { id: user._id, name: user.name, email: user.email, mobile: user.mobile }
@@ -40,12 +51,15 @@ export const registerUser = async (req, res) => {
 
 export const loginUser = async (req, res) => {
     try {
+        console.log('📥 INBOUND REQUEST: POST /auth/login', { email: req.body.email, password: '***' });
         const { email, password } = req.body;
         const user = await User.findOne({ email });
         if (user && (await user.comparePassword(password))) {
+            const generatedToken = generateToken(user._id);
+            console.log('🔐 Generated JWT token:', generatedToken);
             return res.status(200).json({
                 _id: user._id, name: user.name, email: user.email, mobile: user.mobile,
-                token: generateToken(user._id),
+                token: generatedToken,
             });
         }
         res.status(400).json({ error: "Invalid credentials" });

@@ -1,5 +1,5 @@
 import express from "express";
-import { getStations, getStationById, setStation, updateStation, deleteStation, getDebugStations, searchStations } from "../controllers/stationController.js";
+import { getStations, getStationById, setStation, updateStation, deleteStation, getDebugStations, searchStations, getAllStationsPublic, getStationByIdPublic } from "../controllers/stationController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import upload from "../middleware/uploadMiddleware.js";
 
@@ -10,6 +10,8 @@ router.route("/")
   .get(protect, getStations)
   .post(protect, upload.single('image'), setStation);
 
+router.get("/public", getAllStationsPublic);
+router.get("/public/:id", getStationByIdPublic);
 router.get("/search", searchStations);
 
 // Debug: view mock store

@@ -1,6 +1,16 @@
+import dotenv from "dotenv";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load .env from the backend directory (where the file actually lives)
+dotenv.config({ path: path.join(__dirname, ".env") });
+
 import express from "express";
 import mongoose from "mongoose";
-import dotenv from "dotenv";
 import cors from "cors";
 
 // Import models
@@ -19,17 +29,9 @@ import faultRoutes from "./routes/faultRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 
-import path from "path";
-import fs from "fs";
-import { fileURLToPath } from "url";
-
 import http from "http";
 import { Server } from "socket.io";
 import OcppCentralSystem from "./services/ocppCentralSystem.js";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.join(__dirname, ".env") });
 
 // Ensure uploads directory exists to avoid ENOENT when saving files
 try {
@@ -48,12 +50,51 @@ const io = new Server(server, {
   }
 });
 
-app.use(cors());
+const ocppCentralSystem = new OcppCentralSystem({ server, io, pathPrefix: "/ocpp" });
+ocppCentralSystem.attach();
+
+app.use(cors({ origin: process.env.CORS_ORIGIN || "*", credentials: true }));
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-console.log("🚀 Server starting...");
+app.use((req, res, next) => {
+  req.ocppCentralSystem = ocppCentralSystem;
+  next();
+});
+
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/stations', stationRoutes);
+app.use('/api/sessions', sessionRoutes);
+app.use('/api/faults', faultRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+
 console.log("MONGO_URI:", process.env.MONGO_URI);
+
+// Connect to MongoDB first, then start HTTP & Socket.io server
+const mongoUri = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/ev_chargings";
+
+mongoose.connect(mongoUri)
+  .then(() => {
+    console.log("✅ MongoDB Connected");
+    // Start server after DB is ready
+    server.listen(5000, "0.0.0.0", () => {
+      console.log("🌐 Server running on http://0.0.0.0:5000");
+      console.log("📡 Socket.io and OCPP Ready");
+      
+      // Start OCPP Simulator
+      import("./services/ocppSimulator.js").then((module) => {
+        module.default();
+      }).catch((err) => {
+        console.error("❌ Failed to start OCPP Simulator:", err);
+      });
+    });
+  })
+  .catch(err => {
+    console.error("❌ MongoDB Connection Error:", err?.message || err);
+    process.exit(1);
+  });
 
 // Socket.io Room Logic
 io.on("connection", (socket) => {
@@ -74,44 +115,23 @@ io.on("connection", (socket) => {
   });
 });
 
-mongoose.set("bufferCommands", false);
+// Mongoose configuration moved to connection block above
 
-const mongoUri = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/ev_chargings";
+// Server start moved into MongoDB connection promise above
 
-mongoose.connect(mongoUri).then(
-  () => console.log("✅ MongoDB Connected"),
-  (err) => console.error("❌ MongoDB Connection Error:", err?.message || err)
-);
-
-const ocppCentralSystem = new OcppCentralSystem({ server, io, pathPrefix: "/ocpp" });
-ocppCentralSystem.attach();
-
-server.listen(5000, () => {
-  console.log("🌐 Server running on http://localhost:5000");
-  console.log("📡 Socket.io and OCPP Ready");
-});
-
-app.get("/", (req, res) => {
-  res.send("API Running");
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", timestamp: Date.now() });
 });
 
 app.get("/test", (req, res) => {
   res.send("Test working ✅");
 });
 
-app.use((req, res, next) => {
-  req.ocppCentralSystem = ocppCentralSystem;
-  next();
+// Centralized error handling middleware
+app.use((err, req, res, next) => {
+  console.error("Unhandled Error:", err);
+  const status = err.status || 500;
+  res.status(status).json({ error: err.message || "Internal Server Error" });
 });
-
-// Use routes
-app.use("/api/auth", authRoutes);
-app.use("/api/users", userRoutes);
-app.use("/api/stations", stationRoutes);
-app.use("/api/sessions", sessionRoutes);
-app.use("/api/faults", faultRoutes);
-app.use("/api/payments", paymentRoutes);
-app.use("/api/dashboard", dashboardRoutes);
-
 // Static folder for uploads
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));

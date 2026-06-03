@@ -252,3 +252,35 @@ export const resolveFault = async (faultId: string) => {
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 };
+
+// PAYMENTS
+export const getPayments = async () => {
+  if (!getToken()) return [];
+  const res = await fetch(`${BASE_URL}/payments`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch payments");
+  return res.json();
+};
+
+export const getUsers = async () => {
+  if (!getToken()) return [];
+  const res = await fetch(`${BASE_URL}/users`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch users");
+  return res.json();
+};
+
+export const simulateFault = async (stationId: string, faultCode: string) => {
+  const res = await fetch(`${BASE_URL}/faults/simulate`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ stationId, faultCode }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+};
+
+export const getReports = async () => {
+  if (!getToken()) return null;
+  const res = await fetch(`${BASE_URL}/dashboard/reports`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch reports");
+  return res.json();
+};

@@ -8,10 +8,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import {
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger
+} from '@/components/ui/dialog';
+import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { StopCircle, PlayCircle, Zap, Battery, Activity, Car, Cable, Settings2, Thermometer, IndianRupee } from 'lucide-react';
-import { getSessions, getLiveSessions, startSession, stopSession, getStations } from '@/services/api';
+import { StopCircle, PlayCircle, Zap, Battery, Activity, Car, Cable, Settings2, Thermometer, IndianRupee, ShieldAlert } from 'lucide-react';
+import { getSessions, getLiveSessions, startSession, stopSession, getStations, simulateFault } from '@/services/api';
 import { useToast } from '@/hooks/use-toast';
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -40,6 +43,19 @@ export default function SessionsPage() {
     }
   });
 
+  const faultMutation = useMutation({
+    mutationFn: ({ stationId, faultCode }: { stationId: string, faultCode: string }) => simulateFault(stationId, faultCode),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      queryClient.invalidateQueries({ queryKey: ["liveSessions"] });
+      queryClient.invalidateQueries({ queryKey: ["faults"] });
+      toast({ title: 'Fault Injected', description: `Simulated fault triggered successfully.` });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Fault Injection Failed', description: err.message, variant: 'destructive' });
+    }
+  });
+
   const handleStartSession = async () => {
     try {
       setIsLoading(true);
@@ -65,6 +81,10 @@ export default function SessionsPage() {
     } catch (err: any) {
       toast({ title: "Failed to Stop", description: err.message, variant: "destructive" });
     }
+  };
+
+  const triggerFault = (stationId: string, faultCode: string) => {
+    faultMutation.mutate({ stationId, faultCode });
   };
 
   const sessions = useMemo(() => (sessionsQuery.data ?? []) as any[], [sessionsQuery.data]);
@@ -194,16 +214,16 @@ export default function SessionsPage() {
                   <div className="grid grid-cols-2 gap-y-3 gap-x-4 text-sm bg-card rounded-xl border p-4 shadow-sm">
                     <div className="flex justify-between items-center pb-2 border-b border-border/40">
                       <span className="text-muted-foreground flex items-center gap-1.5"><Settings2 className="w-3.5 h-3.5"/> Voltage</span>
-                      <span className="font-mono font-medium">{session.voltage}V</span>
+                      <span className="font-mono font-medium">{Number(session.voltage || 0).toFixed(1)}V</span>
                     </div>
                     <div className="flex justify-between items-center pb-2 border-b border-border/40">
                       <span className="text-muted-foreground flex items-center gap-1.5"><Activity className="w-3.5 h-3.5"/> Current</span>
-                      <span className="font-mono font-medium">{session.current}A</span>
+                      <span className="font-mono font-medium">{Number(session.current || 0).toFixed(1)}A</span>
                     </div>
                     <div className="flex justify-between items-center pt-1">
                       <span className="text-muted-foreground flex items-center gap-1.5"><Thermometer className="w-3.5 h-3.5"/> Temp</span>
                       <span className={`font-mono font-medium flex items-center gap-1 ${session.temperature > 45 ? 'text-warning' : 'text-success'}`}>
-                        {session.temperature}°C
+                        {Number(session.temperature || 0).toFixed(1)}°C
                       </span>
                     </div>
                     <div className="flex justify-between items-center pt-1">
@@ -212,8 +232,45 @@ export default function SessionsPage() {
                     </div>
                   </div>
 
-                  {/* Stop Action */}
-                  <div className="pt-2">
+                  {/* Action Buttons */}
+                  <div className="pt-2 space-y-2">
+                     <Dialog>
+                       <DialogTrigger asChild>
+                         <Button 
+                            variant="outline" 
+                            className="w-full gap-2 font-medium border-destructive/30 hover:bg-destructive/10 text-destructive"
+                         >
+                           <ShieldAlert className="w-4 h-4" /> Simulate Fault
+                         </Button>
+                       </DialogTrigger>
+                       <DialogContent className="max-w-md">
+                         <DialogHeader>
+                           <DialogTitle>Simulate Fault on Station #{session.stationNumber}</DialogTitle>
+                           <DialogDescription>
+                             Select a fault type to inject simulated hardware failure. This will stop the active charging session immediately.
+                           </DialogDescription>
+                         </DialogHeader>
+                         <div className="grid grid-cols-2 gap-3 py-4">
+                           <Button onClick={() => triggerFault(session.stationId?._id || session.stationId, 'TEMP_HIGH')} variant="destructive" className="flex flex-col h-20 justify-center">
+                             <Thermometer className="w-6 h-6 mb-1" />
+                             <span>Over Temp</span>
+                           </Button>
+                           <Button onClick={() => triggerFault(session.stationId?._id || session.stationId, 'VOLT_HIGH')} variant="destructive" className="flex flex-col h-20 justify-center">
+                             <Zap className="w-6 h-6 mb-1" />
+                             <span>Over Voltage</span>
+                           </Button>
+                           <Button onClick={() => triggerFault(session.stationId?._id || session.stationId, 'CURRENT_HIGH')} variant="destructive" className="flex flex-col h-20 justify-center">
+                             <Activity className="w-6 h-6 mb-1" />
+                             <span>Over Current</span>
+                           </Button>
+                           <Button onClick={() => triggerFault(session.stationId?._id || session.stationId, 'EMERGENCY_STOP')} variant="destructive" className="flex flex-col h-20 justify-center">
+                             <StopCircle className="w-6 h-6 mb-1" />
+                             <span>E-Stop</span>
+                           </Button>
+                         </div>
+                       </DialogContent>
+                     </Dialog>
+
                      <Button 
                         variant="destructive" 
                         className="w-full gap-2 font-medium hover:bg-destructive shadow-md hover:shadow-destructive/20 transition-all active:scale-[0.98]" 

@@ -1,9 +1,12 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
-const jwtSecret = process.env.JWT_SECRET || 'fallback_secret';
-
 export const protect = async (req, res, next) => {
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+        console.error('JWT_SECRET environment variable is not set.');
+        return res.status(500).json({ error: 'Server configuration error' });
+    }
     let token;
 
     if (req.headers.authorization && req.headers.authorization.toLowerCase().startsWith('bearer ')) {

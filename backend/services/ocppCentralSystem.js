@@ -262,7 +262,7 @@ export default class OcppCentralSystem {
     const station = await this.findStation(chargePointId);
     if (!station) return;
     station.lastSeen = new Date();
-    if (station.status !== "online") station.status = "online";
+    if (station.status !== "online" && station.status !== "Faulted") station.status = "online";
     station.ocppConnected = true;
     await station.save();
     this.io.emit("station_update", { stationId: station._id, stationNumber: station.stationNumber, status: station.status });
@@ -273,25 +273,19 @@ export default class OcppCentralSystem {
     if (!station) return;
 
     const connectorId = toNumber(payload?.connectorId) ?? 0;
-    const status = payload?.status || "Unknown";
-    const errorCode = payload?.errorCode || "NoError";
+    let status = payload?.status || "Unknown";
+    let errorCode = payload?.errorCode || "NoError";
 
     station.lastSeen = new Date();
     station.ocppConnected = true;
     station.connectors = station.connectors || [];
 
-    const existingIdx = station.connectors.findIndex((c) => Number(c.connectorId) === connectorId);
-    const connector = {
-      connectorId,
-      status,
-      errorCode,
-      updatedAt: new Date(),
-    };
-    if (existingIdx >= 0) station.connectors[existingIdx] = connector;
-    else station.connectors.push(connector);
-
     const faultType = mapOcppErrorToFaultType(errorCode);
     if (faultType) {
+      station.status = "Faulted";
+      station.faultStatus = faultType;
+      status = "Faulted";
+      
       const fault = await Fault.create({
         stationId: station._id,
         type: faultType,
@@ -300,7 +294,6 @@ export default class OcppCentralSystem {
         status: "active",
         raw: { errorCode, status, connectorId },
       });
-      station.faultStatus = faultType;
       this.io.emit("fault_alert", {
         stationId: station._id,
         stationNumber: station.stationNumber,
@@ -311,6 +304,26 @@ export default class OcppCentralSystem {
         createdAt: fault.createdAt,
       });
     }
+
+    if (station.status === "Faulted") {
+      status = "Faulted";
+      if (errorCode === "NoError" && station.connectors && station.connectors.length > 0) {
+        const activeConn = station.connectors.find(c => Number(c.connectorId) === connectorId);
+        if (activeConn && activeConn.status === "Faulted") {
+          errorCode = activeConn.errorCode || "NoError";
+        }
+      }
+    }
+
+    const existingIdx = station.connectors.findIndex((c) => Number(c.connectorId) === connectorId);
+    const connector = {
+      connectorId,
+      status,
+      errorCode,
+      updatedAt: new Date(),
+    };
+    if (existingIdx >= 0) station.connectors[existingIdx] = connector;
+    else station.connectors.push(connector);
 
     await station.save();
 
@@ -416,6 +429,27 @@ export default class OcppCentralSystem {
     const idTag = payload?.idTag || "unknown";
     const startedAt = payload?.timestamp ? new Date(payload.timestamp) : new Date();
 
+    let paymentId = undefined;
+    let orderId = undefined;
+    if (idTag.startsWith("user:")) {
+      try {
+        const Payment = (await import("../models/Payment.js")).default;
+        const userId = idTag.replace("user:", "");
+        const payment = await Payment.findOne({
+          userId: userId,
+          stationId: station._id,
+          status: "paid"
+        }).sort({ createdAt: -1 });
+
+        if (payment) {
+          paymentId = payment.paymentId;
+          orderId = payment.orderId;
+        }
+      } catch (err) {
+        console.error("❌ Error linking payment in onStartTransaction:", err.message);
+      }
+    }
+
     const tx = await Transaction.create({
       stationId: station._id,
       stationNumber: station.stationNumber,
@@ -425,6 +459,8 @@ export default class OcppCentralSystem {
       meterStart,
       startTime: startedAt,
       status: "active",
+      paymentId,
+      orderId,
     });
 
     this.io.emit("transaction_update", {
@@ -467,6 +503,91 @@ export default class OcppCentralSystem {
       }
 
       await tx.save();
+
+      // Reconcile Cost and Auto-Refund
+      try {
+        const Payment = (await import("../models/Payment.js")).default;
+        const Session = (await import("../models/Session.js")).default;
+        
+        let payment = null;
+        if (tx.orderId) {
+          payment = await Payment.findOne({ orderId: tx.orderId });
+        } else if (tx.paymentId) {
+          payment = await Payment.findOne({ paymentId: tx.paymentId });
+        } else {
+          payment = await Payment.findOne({ sessionId: tx.sessionId });
+        }
+
+        if (payment) {
+          const estimatedAmount = payment.totalAmount || payment.amount;
+          const actualAmount = tx.cost !== undefined ? tx.cost : (energyUsed * pricePerKwh + convenienceFee + tax);
+          
+          payment.estimatedAmount = estimatedAmount;
+          payment.actualAmount = actualAmount;
+          
+          if (!payment.sessionId && tx.sessionId) {
+            payment.sessionId = tx.sessionId;
+          }
+
+          if (estimatedAmount > actualAmount) {
+            const refundAmount = Number((estimatedAmount - actualAmount).toFixed(2));
+            payment.refundAmount = refundAmount;
+            payment.extraAmount = 0;
+            payment.status = "pending_refund";
+            await payment.save();
+            
+            this.io.emit("payment_update", payment);
+
+            let refundId = `ref_mock_${Math.random().toString(36).substring(2, 10)}`;
+            if (payment.paymentId && !payment.paymentId.startsWith("pay_mock_")) {
+              try {
+                const Razorpay = (await import("razorpay")).default;
+                const razorpay = new Razorpay({
+                  key_id: process.env.RAZORPAY_KEY_ID,
+                  key_secret: process.env.RAZORPAY_KEY_SECRET,
+                });
+                const refund = await razorpay.payments.refund(payment.paymentId, {
+                  amount: Math.round(refundAmount * 100),
+                  notes: { reason: "Auto refund for EV charging unused energy difference" }
+                });
+                refundId = refund.id;
+              } catch (refundErr) {
+                console.error("❌ Razorpay Auto-Refund Call Error:", refundErr.message);
+              }
+            }
+
+            payment.status = "refunded";
+            payment.refundId = refundId;
+            payment.refundTimestamp = new Date();
+            await payment.save();
+          } else {
+            payment.status = "completed";
+            payment.refundAmount = 0;
+            payment.extraAmount = Number((actualAmount - estimatedAmount).toFixed(2));
+            await payment.save();
+          }
+
+          this.io.emit("payment_update", payment);
+
+          // Update MongoDB Session schema to completed if exists
+          const sessionObjId = payment.sessionId || tx.sessionId;
+          if (sessionObjId) {
+            const session = await Session.findById(sessionObjId);
+            if (session) {
+              session.status = "completed";
+              session.endTime = endedAt;
+              session.energyUsed = energyUsed || 0;
+              session.cost = actualAmount;
+              session.appliedPrice = pricePerKwh;
+              session.convenienceFee = convenienceFee;
+              session.tax = tax;
+              await session.save();
+            }
+          }
+        }
+      } catch (reconErr) {
+        console.error("❌ Error during stop cost reconciliation:", reconErr.message);
+      }
 
       this.io.emit("transaction_update", {
         stationId: station._id,

@@ -18,6 +18,9 @@ const transactionSchema = new mongoose.Schema(
     appliedPrice: { type: Number },
     convenienceFee: { type: Number },
     tax: { type: Number },
+    paymentId: { type: String },
+    orderId: { type: String },
+    sessionId: { type: String },
   },
   { timestamps: true, collection: "transactions" }
 );

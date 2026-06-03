@@ -1,73 +1,82 @@
-# Welcome to your Lovable project
+# EV Charging Station Admin Dashboard
 
-## Project info
+An advanced EV Charging Platform Operator System featuring real-time charging session trackers, station and connector health metrics, live telemetry, reports, and a controlled fault simulation system.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+---
 
-## How can I edit this code?
+## 📋 System Requirements
 
-There are several ways of editing your application.
+To run this application locally, you will need:
+1. **Node.js** (v18 or higher recommended)
+2. **MongoDB** (Local Community Server OR a MongoDB Atlas cloud database URI)
 
-**Use Lovable**
+---
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## 🚀 Quick Start Guide
 
-Changes made via Lovable will be committed automatically to this repo.
+Follow these steps to set up and run the application on your laptop:
 
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+### 1. Clone the Repository
+```bash
+git clone https://github.com/Srimunn/charge-hub-admin.git
+cd charge-hub-admin
 ```
 
-**Edit a file directly in GitHub**
+### 2. Configure Environment Variables
+You need to create a `.env` file inside the `backend` directory to store configuration keys.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+Create a file at `backend/.env` and add the following content:
+```env
+# JWT & Security Configuration
+JWT_SECRET=ba7561c9dc7e415382906432f3852f44
+TOKEN_EXPIRY=7d
 
-**Use GitHub Codespaces**
+# MongoDB Connection (use your local URI or Atlas connection string)
+MONGO_URI=mongodb://127.0.0.1:27017/ev_chargings
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+# Razorpay Test Mode Keys (for test transaction processing)
+RAZORPAY_KEY_ID=rzp_test_SrF5xp9EfzQMlu
+RAZORPAY_KEY_SECRET=xByWuuQVHAsOM064HPs8anAA
+RAZORPAY_WEBHOOK_SECRET=your_webhook_secret_here
+```
 
-## What technologies are used for this project?
+### 3. Install Dependencies
+Run this command in the project root directory to install all frontend and backend packages:
+```bash
+npm install
+```
 
-This project is built with:
+### 4. Seed the Database (Optional but Recommended)
+To populate the database with initial stations, users, and faults:
+```bash
+node backend/seeder.js
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+### 5. Run the Application
+You will need to start both the **Backend API server** and the **Frontend dev server**:
 
-## How can I deploy this project?
+#### Start the Backend API Server
+In your terminal, run:
+```bash
+npm run backend
+```
+*The backend API server will start on [http://localhost:5000](http://localhost:5000).*
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+#### Start the Frontend Web App
+Open a new terminal window/tab, navigate to the root directory, and run:
+```bash
+npm run dev
+```
+*The Next.js frontend admin panel will start on [http://localhost:3000](http://localhost:3000).*
 
-## Can I connect a custom domain to my Lovable project?
+---
 
-Yes, you can!
+## 🛠️ Testing the Fault Simulation System
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Once both servers are running:
+1. Log in to the Admin Panel and navigate to **Live Sessions**.
+2. Click **Simulate Start Session** to spin up an active charging station.
+3. On the active station card, click the **Simulate Fault** button.
+4. Choose any of the test faults (e.g., *Over Temp*, *Over Voltage*, *Over Current*, or *E-Stop*).
+5. Watch the charging session immediately stop, and verify that the station status changes to **Faulted** across the dashboard, Live Sessions, and Station Details screens in real time.
+6. To restore the station, navigate to the **Faults & Alerts** page and click **Resolve**.

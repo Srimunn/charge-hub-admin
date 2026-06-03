@@ -1,27 +1,21 @@
 import express from "express";
-import Payment from "../models/Payment.js";
+import { protect } from "../middleware/authMiddleware.js";
+import { 
+    createOrder, 
+    verifyPayment, 
+    webhookHandler, 
+    getPayments, 
+    getPaymentById,
+    getPaymentBySessionId
+} from "../controllers/paymentController.js";
 
 const router = express.Router();
 
-// CREATE PAYMENT
-router.post("/", async (req, res) => {
-    try {
-        const payment = new Payment(req.body);
-        await payment.save();
-        res.json(payment);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// GET PAYMENTS
-router.get("/", async (req, res) => {
-    try {
-        const payments = await Payment.find().populate("userId sessionId");
-        res.json(payments);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
+router.post("/create-order", protect, createOrder);
+router.post("/verify", protect, verifyPayment);
+router.post("/webhook", webhookHandler); // Webhook does not use standard auth (it uses HMAC)
+router.get("/", protect, getPayments);
+router.get("/session/:sessionId", protect, getPaymentBySessionId);
+router.get("/:id", protect, getPaymentById);
 
 export default router;
