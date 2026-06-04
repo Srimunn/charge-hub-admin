@@ -75,8 +75,9 @@ console.log("MONGO_URI:", process.env.MONGO_URI);
 const mongoUri = process.env.MONGO_URI;
 
 // Start HTTP & Socket.io server immediately (so health checks work and server doesn't crash)
-server.listen(5000, "0.0.0.0", () => {
-  console.log("🌐 Server running on http://0.0.0.0:5000");
+const port = process.env.PORT || 5000;
+server.listen(port, "0.0.0.0", () => {
+  console.log(`🌐 Server running on http://0.0.0.0:${port}`);
   console.log("📡 Socket.io and OCPP Ready");
   
   // Start OCPP Simulator
@@ -175,7 +176,7 @@ io.on("connection", (socket) => {
 // Server start moved into MongoDB connection promise above
 
 app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", timestamp: Date.now() });
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
 app.get("/test", (req, res) => {

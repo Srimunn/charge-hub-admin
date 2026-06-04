@@ -17,10 +17,11 @@ class StationClient {
   connect() {
     if (this.ws || this.isConnecting) return;
     this.isConnecting = true;
-    console.log(`🔌 [OCPP Simulator] Station ${this.stationNumber} connecting to ws://127.0.0.1:5000/ocpp/${this.stationNumber}...`);
+    const port = process.env.PORT || 5000;
+    console.log(`🔌 [OCPP Simulator] Station ${this.stationNumber} connecting to ws://127.0.0.1:${port}/ocpp/${this.stationNumber}...`);
 
     try {
-      this.ws = new WebSocket(`ws://127.0.0.1:5000/ocpp/${this.stationNumber}`, "ocpp1.6");
+      this.ws = new WebSocket(`ws://127.0.0.1:${port}/ocpp/${this.stationNumber}`, "ocpp1.6");
 
       this.ws.on("open", () => {
         this.isConnecting = false;
