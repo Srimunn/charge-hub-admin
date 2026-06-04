@@ -47,7 +47,16 @@ export const getFaults = async (req, res) => {
     try {
         const stations = await Station.find({ userId: req.user.id }).select("_id");
         const stationIds = stations.map((s) => s._id);
-        const faults = await Fault.find({ stationId: { $in: stationIds } })
+        
+        let query = {};
+        if (stationIds.length > 0) {
+            query = { stationId: { $in: stationIds } };
+        } else {
+            // For customers, return active faults in the system
+            query = { status: { $in: ["active", "ACTIVE"] } };
+        }
+
+        const faults = await Fault.find(query)
             .populate("stationId")
             .sort({ createdAt: -1 });
         res.json(faults);
@@ -269,6 +278,28 @@ export const resolveFault = async (req, res) => {
         }
 
         res.json(fault);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+export const getAlerts = async (req, res) => {
+    try {
+        const stations = await Station.find({ userId: req.user.id }).select("_id");
+        const stationIds = stations.map((s) => s._id);
+        
+        let query = {};
+        if (stationIds.length > 0) {
+            query = { stationId: { $in: stationIds } };
+        } else {
+            // For customers, return active alerts in the system
+            query = { status: { $in: ["active", "ACTIVE"] } };
+        }
+
+        const alerts = await Alert.find(query)
+            .populate("stationId")
+            .sort({ timestamp: -1 });
+        res.json(alerts);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

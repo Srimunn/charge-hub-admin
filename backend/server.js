@@ -72,29 +72,84 @@ app.use('/api/dashboard', dashboardRoutes);
 
 console.log("MONGO_URI:", process.env.MONGO_URI);
 
-// Connect to MongoDB first, then start HTTP & Socket.io server
-const mongoUri = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/ev_chargings";
+const mongoUri = process.env.MONGO_URI;
 
-mongoose.connect(mongoUri)
-  .then(() => {
-    console.log("✅ MongoDB Connected");
-    // Start server after DB is ready
-    server.listen(5000, "0.0.0.0", () => {
-      console.log("🌐 Server running on http://0.0.0.0:5000");
-      console.log("📡 Socket.io and OCPP Ready");
-      
-      // Start OCPP Simulator
-      import("./services/ocppSimulator.js").then((module) => {
-        module.default();
-      }).catch((err) => {
-        console.error("❌ Failed to start OCPP Simulator:", err);
-      });
-    });
-  })
-  .catch(err => {
-    console.error("❌ MongoDB Connection Error:", err?.message || err);
-    process.exit(1);
+// Start HTTP & Socket.io server immediately (so health checks work and server doesn't crash)
+server.listen(5000, "0.0.0.0", () => {
+  console.log("🌐 Server running on http://0.0.0.0:5000");
+  console.log("📡 Socket.io and OCPP Ready");
+  
+  // Start OCPP Simulator
+  import("./services/ocppSimulator.js").then((module) => {
+    module.default();
+  }).catch((err) => {
+    console.error("❌ Failed to start OCPP Simulator:", err);
   });
+});
+
+// Helper to extract database and cluster names from URI
+const getClusterAndDb = (uri) => {
+  try {
+    const parsed = new URL(uri);
+    const dbName = parsed.pathname.substring(1) || "ev_chargings";
+
+    let clusterName = "EVapp"; // fallback
+    const appName = parsed.searchParams.get("appName");
+    if (appName) {
+      clusterName = appName;
+    } else {
+      const host = parsed.host;
+      const parts = host.split('.');
+      if (parts.length > 0) {
+        const sub = parts[0];
+        clusterName = sub.charAt(0).toUpperCase() + sub.slice(1);
+      }
+    }
+    return { dbName, clusterName };
+  } catch (e) {
+    return { dbName: "ev_chargings", clusterName: "EVapp" };
+  }
+};
+
+// Set connection event listeners for automatic reconnection events
+mongoose.connection.on("disconnected", () => {
+  console.log("⚠️ MongoDB Disconnected. Reconnecting...");
+});
+mongoose.connection.on("reconnected", () => {
+  console.log("✅ MongoDB Reconnected");
+});
+mongoose.connection.on("error", (err) => {
+  console.error("❌ MongoDB connection error:", err);
+});
+
+// Connect to MongoDB with auto-retry
+const connectDB = () => {
+  if (!mongoUri) {
+    console.error("❌ Error: MONGO_URI environment variable is not defined!");
+    return;
+  }
+  const isAtlas = mongoUri.startsWith("mongodb+srv://") || mongoUri.includes("mongodb.net");
+  mongoose.connect(mongoUri)
+    .then(() => {
+      if (isAtlas) {
+        console.log("✅ MongoDB Atlas Connected");
+        const { dbName, clusterName } = getClusterAndDb(mongoUri);
+        console.log(`📊 Database: ${dbName}`);
+        console.log(`🌐 Cluster: ${clusterName}`);
+      } else {
+        console.log("✅ MongoDB Connected");
+        const { dbName } = getClusterAndDb(mongoUri);
+        console.log(`📊 Database: ${dbName}`);
+      }
+    })
+    .catch(err => {
+      console.error("❌ MongoDB Connection Error:", err?.message || err);
+      console.log("⚠️ Retrying database connection in 5 seconds...");
+      setTimeout(connectDB, 5000);
+    });
+};
+
+connectDB();
 
 // Socket.io Room Logic
 io.on("connection", (socket) => {

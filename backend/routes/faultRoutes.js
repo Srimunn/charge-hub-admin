@@ -1,8 +1,11 @@
 import express from "express";
-import { createFault, getFaults, getFaultById, resolveFault, simulateFault } from "../controllers/faultController.js";
+import { createFault, getFaults, getFaultById, resolveFault, simulateFault, getAlerts } from "../controllers/faultController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
+
+// GET all active alerts in the system (or for owned stations)
+router.get("/alerts", protect, getAlerts);
 
 // GET all faults for the user's stations
 router.get("/", protect, getFaults);
