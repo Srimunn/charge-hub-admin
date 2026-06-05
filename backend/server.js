@@ -178,8 +178,23 @@ io.on("connection", (socket) => {
 // Server start moved into MongoDB connection promise above
 
 app.get("/api/health", (req, res) => {
-  console.log(`💚 [Health Check] Ping received from: ${req.ip} at ${new Date().toISOString()}`);
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
+  const dbStatus = mongoose.connection.readyState;
+  const dbStatusString = dbStatus === 1 ? "connected" : dbStatus === 2 ? "connecting" : "disconnected";
+  console.log(`💚 [Health Check] Ping received from: ${req.ip} at ${new Date().toISOString()} - DB: ${dbStatusString}`);
+  
+  if (dbStatus !== 1) {
+    return res.status(500).json({
+      status: "degraded",
+      database: dbStatusString,
+      timestamp: new Date().toISOString()
+    });
+  }
+  
+  res.json({
+    status: "ok",
+    database: dbStatusString,
+    timestamp: new Date().toISOString()
+  });
 });
 
 app.get("/test", (req, res) => {
