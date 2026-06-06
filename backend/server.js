@@ -1,3 +1,8 @@
+import crypto from "crypto";
+if (!global.crypto) {
+  global.crypto = crypto;
+}
+
 import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
