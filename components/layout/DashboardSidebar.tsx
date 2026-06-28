@@ -1,5 +1,5 @@
 "use client";
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -15,10 +15,12 @@ import {
   ChevronRight,
   LogOut,
   Shield,
+  Bell,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { signOut } from 'next-auth/react';
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
@@ -27,6 +29,7 @@ const navItems = [
   { icon: AlertTriangle, label: 'Faults & Alerts', path: '/faults' },
   { icon: DollarSign, label: 'Pricing', path: '/pricing' },
   { icon: DollarSign, label: 'Payments', path: '/payments' },
+  { icon: Bell, label: 'Notifications', path: '/notifications' },
   { icon: BarChart3, label: 'Reports', path: '/reports' },
   { icon: Users, label: 'Users & Fleets', path: '/users' },
   { icon: Settings, label: 'Settings', path: '/settings' },
@@ -37,7 +40,20 @@ export function DashboardSidebar() {
   const pathname = usePathname();
   const router = useRouter();
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleResize = () => {
+      if (window.innerWidth < 1024) {
+        setCollapsed(true);
+      }
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const handleLogout = () => {
+    signOut({ redirect: false });
     localStorage.clear();
     router.push('/login');
   };
@@ -45,7 +61,7 @@ export function DashboardSidebar() {
   return (
     <aside
       className={cn(
-        'relative flex flex-col border-r border-sidebar-border transition-all duration-300 h-screen sticky top-0',
+        'hidden md:flex relative flex-col border-r border-sidebar-border transition-all duration-300 h-screen sticky top-0',
         collapsed ? 'w-[72px]' : 'w-[260px]'
       )}
       style={{

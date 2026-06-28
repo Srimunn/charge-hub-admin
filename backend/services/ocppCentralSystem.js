@@ -262,7 +262,7 @@ export default class OcppCentralSystem {
     const station = await this.findStation(chargePointId);
     if (!station) return;
     station.lastSeen = new Date();
-    if (station.status !== "online" && station.status !== "Faulted") station.status = "online";
+    if (station.status !== "online" && station.status !== "Faulted" && station.status !== "FAULT" && station.status !== "charging") station.status = "online";
     station.ocppConnected = true;
     await station.save();
     this.io.emit("station_update", { stationId: station._id, stationNumber: station.stationNumber, status: station.status });
@@ -305,7 +305,7 @@ export default class OcppCentralSystem {
       });
     }
 
-    if (station.status === "Faulted") {
+    if (station.status === "Faulted" || station.status === "FAULT") {
       status = "Faulted";
       if (errorCode === "NoError" && station.connectors && station.connectors.length > 0) {
         const activeConn = station.connectors.find(c => Number(c.connectorId) === connectorId);

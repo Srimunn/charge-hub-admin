@@ -103,7 +103,7 @@ export default function SessionsPage() {
       <div className="flex-1 p-6 space-y-6">
         
         <div className="flex justify-end">
-           <Button onClick={handleStartSession} disabled={isLoading} className="gap-2">
+           <Button onClick={handleStartSession} disabled={isLoading} className="w-full sm:w-auto gap-2">
               <PlayCircle className="w-4 h-4" /> Simulate Start Session
            </Button>
         </div>
@@ -156,29 +156,32 @@ export default function SessionsPage() {
              </CardContent>
            </Card>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-            {liveSessions.map((session) => (
-              <Card key={session.id} className="relative overflow-hidden group hover:shadow-xl hover:shadow-primary/5 transition-all duration-300 rounded-2xl border-border/50 bg-card">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {liveSessions.map((session) => {
+              const isFault = session.chargingStatus === "FAULT" || session.sessionStatus === "FAULT_PAUSED";
+              return (
+              <Card key={session.id} className={`relative overflow-hidden group hover:shadow-xl hover:shadow-primary/5 transition-all duration-300 rounded-2xl bg-card ${isFault ? 'border-destructive/60' : 'border-border/50'}`}>
                 
                 {/* Live Indicator */}
                 <div className="absolute top-0 right-0 p-4 z-10">
-                  <div className="flex items-center gap-2 bg-background/80 backdrop-blur-sm px-3 py-1.5 rounded-full border border-success/30 shadow-sm">
+                  <div className={`flex items-center gap-2 bg-background/80 backdrop-blur-sm px-3 py-1.5 rounded-full border shadow-sm ${isFault ? 'border-destructive/30 text-destructive' : 'border-success/30 text-success'}`}>
                     <span className="relative flex h-2.5 w-2.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-success"></span>
+                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isFault ? 'bg-destructive' : 'bg-success'}`}></span>
+                      <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isFault ? 'bg-destructive' : 'bg-success'}`}></span>
                     </span>
-                    <span className="text-[10px] font-bold text-success uppercase tracking-wider">{session.chargingStatus}</span>
+                    {isFault && <ShieldAlert className="w-3 h-3 text-destructive animate-pulse" />}
+                    <span className="text-[10px] font-bold uppercase tracking-wider">{isFault ? "FAULT" : session.chargingStatus}</span>
                   </div>
                 </div>
 
                 {/* Animated Glow Background */}
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-success/50 via-success to-success/50 animate-pulse"></div>
-                <div className="absolute -top-24 -right-24 w-48 h-48 bg-success/10 rounded-full blur-3xl opacity-50 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
+                <div className={`absolute top-0 left-0 w-full h-1 animate-pulse bg-gradient-to-r ${isFault ? 'from-destructive/50 via-destructive to-destructive/50' : 'from-success/50 via-success to-success/50'}`}></div>
+                <div className={`absolute -top-24 -right-24 w-48 h-48 rounded-full blur-3xl opacity-50 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none ${isFault ? 'bg-destructive/10' : 'bg-success/10'}`}></div>
                 
                 <CardHeader className="pb-2 relative z-10">
                   <CardTitle className="flex items-center gap-2 text-xl font-bold">
                     <div className="p-2 bg-primary/10 rounded-lg">
-                      <Zap className="w-5 h-5 text-primary animate-pulse" />
+                      <Zap className={`w-5 h-5 text-primary ${isFault ? '' : 'animate-pulse'}`} />
                     </div>
                     Station #{session.stationNumber}
                   </CardTitle>
@@ -232,44 +235,68 @@ export default function SessionsPage() {
                     </div>
                   </div>
 
+                  {/* Fault Details Block */}
+                  {isFault && session.faultType && (
+                    <div className="bg-destructive/5 border border-destructive/20 p-4 rounded-xl space-y-2 text-sm animate-in fade-in duration-300">
+                      <div className="flex items-center gap-2 text-destructive font-bold">
+                        <ShieldAlert className="w-4 h-4 animate-bounce" />
+                        <span>FAULT ACTIVE</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-y-1.5 text-xs">
+                        <span className="text-muted-foreground">Fault Type:</span>
+                        <span className="col-span-2 font-semibold text-foreground">{session.faultType}</span>
+                        
+                        <span className="text-muted-foreground">Message:</span>
+                        <span className="col-span-2 font-semibold text-foreground">{session.faultMessage}</span>
+                        
+                        <span className="text-muted-foreground">Detected:</span>
+                        <span className="col-span-2 font-semibold text-foreground">
+                          {session.faultTime ? new Date(session.faultTime).toLocaleString() : '—'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Action Buttons */}
                   <div className="pt-2 space-y-2">
-                     <Dialog>
-                       <DialogTrigger asChild>
-                         <Button 
-                            variant="outline" 
-                            className="w-full gap-2 font-medium border-destructive/30 hover:bg-destructive/10 text-destructive"
-                         >
-                           <ShieldAlert className="w-4 h-4" /> Simulate Fault
-                         </Button>
-                       </DialogTrigger>
-                       <DialogContent className="max-w-md">
-                         <DialogHeader>
-                           <DialogTitle>Simulate Fault on Station #{session.stationNumber}</DialogTitle>
-                           <DialogDescription>
-                             Select a fault type to inject simulated hardware failure. This will stop the active charging session immediately.
-                           </DialogDescription>
-                         </DialogHeader>
-                         <div className="grid grid-cols-2 gap-3 py-4">
-                           <Button onClick={() => triggerFault(session.stationId?._id || session.stationId, 'TEMP_HIGH')} variant="destructive" className="flex flex-col h-20 justify-center">
-                             <Thermometer className="w-6 h-6 mb-1" />
-                             <span>Over Temp</span>
+                     {!isFault && (
+                       <Dialog>
+                         <DialogTrigger asChild>
+                           <Button 
+                              variant="outline" 
+                              className="w-full gap-2 font-medium border-destructive/30 hover:bg-destructive/10 text-destructive"
+                           >
+                             <ShieldAlert className="w-4 h-4" /> Simulate Fault
                            </Button>
-                           <Button onClick={() => triggerFault(session.stationId?._id || session.stationId, 'VOLT_HIGH')} variant="destructive" className="flex flex-col h-20 justify-center">
-                             <Zap className="w-6 h-6 mb-1" />
-                             <span>Over Voltage</span>
-                           </Button>
-                           <Button onClick={() => triggerFault(session.stationId?._id || session.stationId, 'CURRENT_HIGH')} variant="destructive" className="flex flex-col h-20 justify-center">
-                             <Activity className="w-6 h-6 mb-1" />
-                             <span>Over Current</span>
-                           </Button>
-                           <Button onClick={() => triggerFault(session.stationId?._id || session.stationId, 'EMERGENCY_STOP')} variant="destructive" className="flex flex-col h-20 justify-center">
-                             <StopCircle className="w-6 h-6 mb-1" />
-                             <span>E-Stop</span>
-                           </Button>
-                         </div>
-                       </DialogContent>
-                     </Dialog>
+                         </DialogTrigger>
+                         <DialogContent className="max-w-md">
+                           <DialogHeader>
+                             <DialogTitle>Simulate Fault on Station #{session.stationNumber}</DialogTitle>
+                             <DialogDescription>
+                               Select a fault type to inject simulated hardware failure. This will stop the active charging session immediately.
+                             </DialogDescription>
+                           </DialogHeader>
+                           <div className="grid grid-cols-2 gap-3 py-4">
+                              <Button onClick={() => triggerFault(session.stationId?._id || session.stationId, 'EMERGENCY_STOP')} variant="destructive" className="flex flex-col h-20 justify-center">
+                                <StopCircle className="w-6 h-6 mb-1" />
+                                <span>Emergency Stop</span>
+                              </Button>
+                              <Button onClick={() => triggerFault(session.stationId?._id || session.stationId, 'OVER_TEMP')} variant="destructive" className="flex flex-col h-20 justify-center">
+                                <Thermometer className="w-6 h-6 mb-1" />
+                                <span>Over Temp</span>
+                              </Button>
+                              <Button onClick={() => triggerFault(session.stationId?._id || session.stationId, 'CONNECTOR_FAILURE')} variant="destructive" className="flex flex-col h-20 justify-center">
+                                <Cable className="w-6 h-6 mb-1" />
+                                <span>Connector Failure</span>
+                              </Button>
+                              <Button onClick={() => triggerFault(session.stationId?._id || session.stationId, 'POWER_FAILURE')} variant="destructive" className="flex flex-col h-20 justify-center">
+                                <Zap className="w-6 h-6 mb-1" />
+                                <span>Power Failure</span>
+                              </Button>
+                           </div>
+                         </DialogContent>
+                       </Dialog>
+                     )}
 
                      <Button 
                         variant="destructive" 
@@ -279,9 +306,10 @@ export default function SessionsPage() {
                        <StopCircle className="w-4 h-4" /> Stop Charging Session
                      </Button>
                   </div>
-                </CardContent>
-              </Card>
-            ))}
+                 </CardContent>
+               </Card>
+              );
+            })}
           </div>
         )}
       </div>

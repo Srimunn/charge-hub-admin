@@ -14,7 +14,8 @@ const faultSchema = new mongoose.Schema({
     raw: { type: mongoose.Schema.Types.Mixed },
     createdAt: { type: Date, default: Date.now },
     timestamp: { type: Date, default: Date.now },
-    resolvedAt: { type: Date }
+    resolvedAt: { type: Date },
+    resolvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
 }, { collection: "faults_alerts" });
 
 export default mongoose.model("Fault", faultSchema);

@@ -1,13 +1,17 @@
 import express from "express";
 import User from "../models/User.js";
 import Session from "../models/Session.js";
+import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
 // CREATE USER
-router.post("/", async (req, res) => {
+router.post("/", protect, async (req, res) => {
     try {
-        const user = new User(req.body);
+        const user = new User({
+            ...req.body,
+            operatorId: req.user._id || req.user.id
+        });
         await user.save();
         res.json(user);
     } catch (err) {
@@ -16,9 +20,9 @@ router.post("/", async (req, res) => {
 });
 
 // GET ALL USERS
-router.get("/", async (req, res) => {
+router.get("/", protect, async (req, res) => {
     try {
-        const users = await User.find().lean();
+        const users = await User.find({ operatorId: req.user._id || req.user.id }).lean();
         const usersWithStats = await Promise.all(
             users.map(async (user) => {
                 const sessions = await Session.find({ userId: user._id });

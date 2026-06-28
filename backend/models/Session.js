@@ -10,7 +10,7 @@ const sessionSchema = new mongoose.Schema({
     appliedPrice: { type: Number, default: 0 },
     convenienceFee: { type: Number, default: 0 },
     tax: { type: Number, default: 0 },
-    status: { type: String, enum: ["active", "completed"], default: "active" },
+    status: { type: String, enum: ["active", "completed", "FAULT_PAUSED"], default: "active" },
     connectorId: { type: Number },
     paymentId: { type: String },
     orderId: { type: String },

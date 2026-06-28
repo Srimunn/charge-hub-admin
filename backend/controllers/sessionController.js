@@ -134,7 +134,14 @@ export const getLiveSessions = async (req, res) => {
     try {
         const stations = await Station.find({ userId: req.user.id }).select("_id");
         const stationIds = stations.map((s) => s._id);
-        const active = await Transaction.find({ stationId: { $in: stationIds }, status: "active" }).populate("stationId").sort({ startTime: -1 });
+        const active = await Transaction.find({ stationId: { $in: stationIds }, status: { $in: ["active", "FAULT_PAUSED"] } }).populate("stationId").sort({ startTime: -1 });
+
+        const Fault = (await import("../models/Fault.js")).default;
+        const activeFaults = await Fault.find({ stationId: { $in: stationIds }, status: { $in: ["active", "ACTIVE"] } });
+        const faultMap = new Map();
+        for (const f of activeFaults) {
+            faultMap.set(String(f.stationId), f);
+        }
 
         const stationNumbers = active.map((t) => t.stationNumber);
         const latestTelemetry = await Telemetry.aggregate([
@@ -166,6 +173,8 @@ export const getLiveSessions = async (req, res) => {
                 ? station.connectors.find((c) => Number(c.connectorId) === Number(tx.connectorId))?.status
                 : undefined;
 
+            const fault = station ? faultMap.get(String(station._id)) : undefined;
+
             return {
                 id: String(tx._id),
                 stationId: station ? String(station._id) : undefined,
@@ -182,8 +191,12 @@ export const getLiveSessions = async (req, res) => {
                 sessionTimeSeconds,
                 chargingCost,
                 connectorStatus: connectorStatus || "Unknown",
-                chargingStatus: "Charging",
-                ocppStatus: station?.ocppConnected ? "Connected" : "Disconnected"
+                chargingStatus: tx.status === "FAULT_PAUSED" ? "FAULT" : "Charging",
+                sessionStatus: tx.status === "FAULT_PAUSED" ? "FAULT_PAUSED" : "ACTIVE",
+                ocppStatus: station?.ocppConnected ? "Connected" : "Disconnected",
+                faultType: fault ? fault.faultName || fault.type : undefined,
+                faultMessage: fault ? fault.message : undefined,
+                faultTime: fault ? fault.timestamp || fault.createdAt : undefined
             };
         });
 

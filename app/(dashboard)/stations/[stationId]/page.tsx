@@ -6,7 +6,7 @@ import { DashboardHeader } from "@/components/layout/DashboardHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ShieldAlert, Thermometer, Zap, Activity, StopCircle } from "lucide-react";
+import { ArrowLeft, ShieldAlert, Thermometer, Zap, Activity, StopCircle, Cable } from "lucide-react";
 import { getStationById, simulateFault } from "@/services/api";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { getSocket } from "@/lib/socket";
@@ -114,21 +114,21 @@ export default function StationDetailPage() {
                     </DialogDescription>
                   </DialogHeader>
                   <div className="grid grid-cols-2 gap-3 py-4">
-                    <Button onClick={() => triggerFault(station._id, 'TEMP_HIGH')} variant="destructive" className="flex flex-col h-20 justify-center">
+                    <Button onClick={() => triggerFault(station._id, 'EMERGENCY_STOP')} variant="destructive" className="flex flex-col h-20 justify-center">
+                      <StopCircle className="w-6 h-6 mb-1" />
+                      <span>Emergency Stop</span>
+                    </Button>
+                    <Button onClick={() => triggerFault(station._id, 'OVER_TEMP')} variant="destructive" className="flex flex-col h-20 justify-center">
                       <Thermometer className="w-6 h-6 mb-1" />
                       <span>Over Temp</span>
                     </Button>
-                    <Button onClick={() => triggerFault(station._id, 'VOLT_HIGH')} variant="destructive" className="flex flex-col h-20 justify-center">
+                    <Button onClick={() => triggerFault(station._id, 'CONNECTOR_FAILURE')} variant="destructive" className="flex flex-col h-20 justify-center">
+                      <Cable className="w-6 h-6 mb-1" />
+                      <span>Connector Failure</span>
+                    </Button>
+                    <Button onClick={() => triggerFault(station._id, 'POWER_FAILURE')} variant="destructive" className="flex flex-col h-20 justify-center">
                       <Zap className="w-6 h-6 mb-1" />
-                      <span>Over Voltage</span>
-                    </Button>
-                    <Button onClick={() => triggerFault(station._id, 'CURRENT_HIGH')} variant="destructive" className="flex flex-col h-20 justify-center">
-                      <Activity className="w-6 h-6 mb-1" />
-                      <span>Over Current</span>
-                    </Button>
-                    <Button onClick={() => triggerFault(station._id, 'EMERGENCY_STOP')} variant="destructive" className="flex flex-col h-20 justify-center">
-                      <StopCircle className="w-6 h-6 mb-1" />
-                      <span>E-Stop</span>
+                      <span>Power Failure</span>
                     </Button>
                   </div>
                 </DialogContent>

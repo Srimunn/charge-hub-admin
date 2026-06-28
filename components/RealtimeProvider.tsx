@@ -25,7 +25,10 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const [connected, setConnected] = useState(socket.connected);
 
   useEffect(() => {
-    const onConnect = () => setConnected(true);
+    const onConnect = () => {
+      setConnected(true);
+      queryClient.invalidateQueries();
+    };
     const onDisconnect = () => setConnected(false);
 
     socket.on("connect", onConnect);
@@ -78,6 +81,24 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         return [{ _id: payload.faultId, ...payload }, ...prev];
       });
       queryClient.invalidateQueries({ queryKey: ["faults"] });
+      queryClient.invalidateQueries({ queryKey: ["stations"] });
+    };
+
+    const onFaultResolved = (payload: any) => {
+      queryClient.invalidateQueries({ queryKey: ["faults"] });
+      queryClient.invalidateQueries({ queryKey: ["stations"] });
+      queryClient.invalidateQueries({ queryKey: ["reports"] });
+      if (payload?.stationId) {
+        queryClient.invalidateQueries({ queryKey: ["station", payload.stationId] });
+      }
+    };
+
+    const onStationStatusUpdated = (payload: any) => {
+      queryClient.invalidateQueries({ queryKey: ["stations"] });
+      queryClient.invalidateQueries({ queryKey: ["reports"] });
+      if (payload?.stationId) {
+        queryClient.invalidateQueries({ queryKey: ["station", payload.stationId] });
+      }
     };
 
     socket.on("station_update", onStationUpdate);
@@ -85,6 +106,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     socket.on("live_data", onLiveData);
     socket.on("transaction_update", onTransactionUpdate);
     socket.on("fault_alert", onFaultAlert);
+    socket.on("fault_resolved", onFaultResolved);
+    socket.on("station_status_updated", onStationStatusUpdated);
 
     return () => {
       socket.off("connect", onConnect);
@@ -94,6 +117,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       socket.off("live_data", onLiveData);
       socket.off("transaction_update", onTransactionUpdate);
       socket.off("fault_alert", onFaultAlert);
+      socket.off("fault_resolved", onFaultResolved);
+      socket.off("station_status_updated", onStationStatusUpdated);
     };
   }, [queryClient, socket]);
 

@@ -93,25 +93,73 @@ export default function FaultsPage() {
             {faultsQuery.isLoading ? (
               <div className="p-8 text-center text-muted-foreground">Loading faults…</div>
             ) : faults.length === 0 ? <p className="text-muted-foreground p-4 text-center">No faults detected.</p> : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Station</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Message</TableHead>
-                  <TableHead>Severity</TableHead>
-                  <TableHead>Time Detected</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <div className="space-y-4">
+              {/* Desktop Table View */}
+              <div className="hidden md:block overflow-x-auto w-full">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Station</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Message</TableHead>
+                      <TableHead>Severity</TableHead>
+                      <TableHead>Time Detected</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {faults.map(fault => (
+                      <TableRow key={fault._id} className={fault.severity === 'high' && fault.status === 'active' ? "bg-destructive/10" : ""}>
+                        <TableCell className="font-medium">{fault.stationId?.name || "Unknown"}</TableCell>
+                        <TableCell className="capitalize">{fault.type}</TableCell>
+                        <TableCell>{fault.message}</TableCell>
+                        <TableCell>
+                          <Badge className={
+                            fault.severity === 'high' ? 'bg-destructive text-destructive-foreground animate-pulse' :
+                            fault.severity === 'medium' ? 'bg-warning text-warning-foreground' :
+                            'bg-info text-info-foreground'
+                          }>
+                            {fault.severity}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-xs">
+                          {format(new Date(fault.createdAt), 'MMM dd, HH:mm')}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={
+                            fault.status === 'active' ? 'border-destructive text-destructive' :
+                            'border-success text-success'
+                          }>
+                            {fault.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            {fault.status !== 'resolved' && (
+                              <Button variant="outline" size="sm" onClick={() => handleResolve(fault._id)}>
+                                <CheckCircle className="w-4 h-4 text-success mr-2" /> Resolve
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Mobile Cards View */}
+              <div className="grid grid-cols-1 gap-4 md:hidden">
                 {faults.map(fault => (
-                  <TableRow key={fault._id} className={fault.severity === 'high' && fault.status === 'active' ? "bg-destructive/10" : ""}>
-                    <TableCell className="font-medium">{fault.stationId?.name || "Unknown"}</TableCell>
-                    <TableCell className="capitalize">{fault.type}</TableCell>
-                    <TableCell>{fault.message}</TableCell>
-                    <TableCell>
+                  <div key={fault._id} className={`p-4 bg-secondary/30 rounded-2xl border border-border/40 space-y-4 ${
+                    fault.severity === 'high' && fault.status === 'active' ? "border-destructive/40 bg-destructive/5" : ""
+                  }`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-col">
+                        <span className="font-bold text-sm text-foreground">{fault.stationId?.name || "Unknown"}</span>
+                        <span className="text-[10px] text-muted-foreground font-mono mt-0.5">ID: {fault.stationId?.stationNumber || 'N/A'}</span>
+                      </div>
                       <Badge className={
                         fault.severity === 'high' ? 'bg-destructive text-destructive-foreground animate-pulse' :
                         fault.severity === 'medium' ? 'bg-warning text-warning-foreground' :
@@ -119,31 +167,47 @@ export default function FaultsPage() {
                       }>
                         {fault.severity}
                       </Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-xs">
-                      {format(new Date(fault.createdAt), 'MMM dd, HH:mm')}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={
-                        fault.status === 'active' ? 'border-destructive text-destructive' :
-                        'border-success text-success'
-                      }>
-                        {fault.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        {fault.status !== 'resolved' && (
-                          <Button variant="outline" size="sm" onClick={() => handleResolve(fault._id)}>
-                            <CheckCircle className="w-4 h-4 text-success mr-2" /> Resolve
-                          </Button>
-                        )}
+                    </div>
+
+                    <div className="space-y-2 text-xs bg-background/50 p-3 rounded-xl border border-border/20">
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Type:</span>
+                        <span className="font-semibold capitalize text-foreground">{fault.type}</span>
                       </div>
-                    </TableCell>
-                  </TableRow>
+                      <div className="flex justify-between items-start gap-4">
+                        <span className="text-muted-foreground shrink-0">Message:</span>
+                        <span className="font-medium text-foreground text-right">{fault.message}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Detected:</span>
+                        <span className="font-mono text-muted-foreground">{format(new Date(fault.createdAt), 'MMM dd, HH:mm')}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Status:</span>
+                        <Badge variant="outline" className={
+                          fault.status === 'active' ? 'border-destructive text-destructive' :
+                          'border-success text-success'
+                        }>
+                          {fault.status}
+                        </Badge>
+                      </div>
+                    </div>
+
+                    {fault.status !== 'resolved' && (
+                      <div className="pt-1">
+                        <Button 
+                          variant="outline" 
+                          className="w-full h-11 gap-2 font-medium border-success/30 hover:bg-success/10 text-success" 
+                          onClick={() => handleResolve(fault._id)}
+                        >
+                          <CheckCircle className="w-4 h-4 text-success shrink-0" /> Resolve Fault
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </div>
+            </div>
             )}
           </CardContent>
         </Card>

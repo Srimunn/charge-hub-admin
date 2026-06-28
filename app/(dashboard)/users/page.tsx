@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { DashboardHeader } from '@/components/layout/DashboardHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -13,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { User as UserIcon, Users, Building2, Calendar, ShieldCheck, DollarSign } from 'lucide-react';
+import { User as UserIcon, Users, Building2, Calendar, ShieldCheck, DollarSign, Search } from 'lucide-react';
 import { getUsers } from '@/services/api';
 import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
@@ -24,7 +25,20 @@ export default function UsersPage() {
     queryFn: getUsers,
   });
 
+  const [searchQuery, setSearchQuery] = useState('');
+
   const users = useMemo(() => (usersQuery.data ?? []) as any[], [usersQuery.data]);
+
+  const filteredUsers = useMemo(() => {
+    return users.filter(user => {
+      const q = searchQuery.toLowerCase();
+      const name = (user.name || '').toLowerCase();
+      const email = (user.email || '').toLowerCase();
+      const mob = (user.mobile || '').toLowerCase();
+      const id = (user._id || user.id || '').toLowerCase();
+      return name.includes(q) || email.includes(q) || mob.includes(q) || id.includes(q);
+    });
+  }, [users, searchQuery]);
 
   const summary = useMemo(() => {
     const total = users.length;
@@ -34,49 +48,99 @@ export default function UsersPage() {
   }, [users]);
 
   const UserTable = ({ userList }: { userList: any[] }) => (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Name</TableHead>
-          <TableHead>Email</TableHead>
-          <TableHead>Mobile Number</TableHead>
-          <TableHead>Registration Date</TableHead>
-          <TableHead className="text-center">Total Sessions</TableHead>
-          <TableHead className="text-right">Total Amount Spent</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
+    <div className="space-y-4">
+      {/* Desktop Table View */}
+      <div className="hidden md:block overflow-x-auto w-full">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Email</TableHead>
+              <TableHead>Mobile Number</TableHead>
+              <TableHead>Registration Date</TableHead>
+              <TableHead className="text-center">Total Sessions</TableHead>
+              <TableHead className="text-right">Total Amount Spent</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {userList.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                  No matching registered users found.
+                </TableCell>
+              </TableRow>
+            ) : (
+              userList.map((user) => (
+                <TableRow key={user._id || user.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                        <UserIcon className="w-4 h-4 text-primary" />
+                      </div>
+                      <span className="font-semibold text-foreground">{user.name}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">{user.email}</TableCell>
+                  <TableCell className="font-mono text-xs">{user.mobile || "—"}</TableCell>
+                  <TableCell className="text-muted-foreground text-xs">
+                    {user.createdAt ? format(new Date(user.createdAt), 'MMM dd, yyyy') : "—"}
+                  </TableCell>
+                  <TableCell className="text-center font-semibold font-mono text-sm">{user.totalSessions ?? 0}</TableCell>
+                  <TableCell className="text-right font-bold font-mono text-sm text-success">
+                    ₹{(user.totalSpent ?? 0).toFixed(2)}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Mobile Cards View */}
+      <div className="grid grid-cols-1 gap-4 md:hidden">
         {userList.length === 0 ? (
-          <TableRow>
-            <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-              No registered users found in the database.
-            </TableCell>
-          </TableRow>
+          <div className="text-center py-8 text-muted-foreground">
+            No matching registered users found.
+          </div>
         ) : (
           userList.map((user) => (
-            <TableRow key={user._id || user.id}>
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                    <UserIcon className="w-4 h-4 text-primary" />
-                  </div>
-                  <span className="font-semibold text-foreground">{user.name}</span>
+            <div key={user._id || user.id} className="p-4 bg-secondary/30 rounded-2xl border border-border/40 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <UserIcon className="w-5 h-5 text-primary" />
                 </div>
-              </TableCell>
-              <TableCell className="font-mono text-xs">{user.email}</TableCell>
-              <TableCell className="font-mono text-xs">{user.mobile || "—"}</TableCell>
-              <TableCell className="text-muted-foreground text-xs">
-                {user.createdAt ? format(new Date(user.createdAt), 'MMM dd, yyyy') : "—"}
-              </TableCell>
-              <TableCell className="text-center font-semibold font-mono text-sm">{user.totalSessions ?? 0}</TableCell>
-              <TableCell className="text-right font-bold font-mono text-sm text-success">
-                ₹{(user.totalSpent ?? 0).toFixed(2)}
-              </TableCell>
-            </TableRow>
+                <div className="flex-1 min-w-0">
+                  <span className="font-bold text-sm text-foreground truncate block">{user.name}</span>
+                  <span className="text-xs text-muted-foreground font-mono truncate block">{user.email}</span>
+                </div>
+              </div>
+
+              <div className="space-y-2 text-xs bg-background/50 p-3 rounded-xl border border-border/20">
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Mobile:</span>
+                  <span className="font-semibold text-foreground">{user.mobile || "—"}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Registered:</span>
+                  <span className="font-medium text-foreground">{user.createdAt ? format(new Date(user.createdAt), 'MMM dd, yyyy') : "—"}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-center text-xs bg-background/30 p-2.5 rounded-xl border border-border/10">
+                <div>
+                  <span className="text-muted-foreground block mb-0.5">Sessions</span>
+                  <span className="font-bold text-foreground">{user.totalSessions ?? 0}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block mb-0.5">Amount Spent</span>
+                  <span className="font-bold text-success">₹{(user.totalSpent ?? 0).toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
           ))
         )}
-      </TableBody>
-    </Table>
+      </div>
+    </div>
   );
 
   return (
@@ -84,6 +148,9 @@ export default function UsersPage() {
       <DashboardHeader 
         title="User & Fleet Management" 
         subtitle="Manage registered users and fleet accounts"
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Search by name, email, mobile..."
       />
       
       <div className="flex-1 p-6 space-y-6">
@@ -126,8 +193,17 @@ export default function UsersPage() {
 
         {/* Users Tabs */}
         <Card className="shadow-md border-0 bg-card">
-          <CardHeader>
+          <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2">
             <CardTitle className="text-lg font-bold">Registered Database Records</CardTitle>
+            <div className="relative w-full max-w-xs">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name, email, mobile..."
+                className="pl-9 bg-secondary/50 border-0 rounded-xl text-sm"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
           </CardHeader>
           <CardContent>
             {usersQuery.isLoading ? (
@@ -135,15 +211,15 @@ export default function UsersPage() {
             ) : (
               <Tabs defaultValue="all">
                 <TabsList className="mb-4">
-                  <TabsTrigger value="all">All Users ({users.length})</TabsTrigger>
-                  <TabsTrigger value="individual">Individual ({users.length})</TabsTrigger>
-                  <TabsTrigger value="fleet">Fleet (0)</TabsTrigger>
+                  <TabsTrigger value="all">All Users ({filteredUsers.length})</TabsTrigger>
+                  <TabsTrigger value="individual">Individual ({filteredUsers.filter(u => u.type !== 'fleet').length})</TabsTrigger>
+                  <TabsTrigger value="fleet">Fleet ({filteredUsers.filter(u => u.type === 'fleet').length})</TabsTrigger>
                 </TabsList>
                 <TabsContent value="all">
-                  <UserTable userList={users} />
+                  <UserTable userList={filteredUsers} />
                 </TabsContent>
                 <TabsContent value="individual">
-                  <UserTable userList={users} />
+                  <UserTable userList={filteredUsers.filter(u => u.type !== 'fleet')} />
                 </TabsContent>
                 <TabsContent value="fleet">
                   <Card className="border-dashed bg-muted/20 border-border">

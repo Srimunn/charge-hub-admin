@@ -11,7 +11,7 @@ const transactionSchema = new mongoose.Schema(
     meterStop: { type: Number },
     startTime: { type: Date, required: true },
     endTime: { type: Date },
-    status: { type: String, enum: ["active", "completed"], default: "active" },
+    status: { type: String, enum: ["active", "completed", "FAULT_PAUSED"], default: "active" },
     stopRequestedAt: { type: Date },
     energyUsed: { type: Number },
     cost: { type: Number },

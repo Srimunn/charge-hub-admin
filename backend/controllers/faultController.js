@@ -3,6 +3,7 @@ import Station from "../models/Station.js";
 import Transaction from "../models/Transaction.js";
 import Session from "../models/Session.js";
 import Alert from "../models/Alert.js";
+import { logEvent } from "./auditLogController.js";
 
 const calculateCurrentRate = (station, at = new Date()) => {
     let pricePerKwh = station?.basePricePerKwh || 0;
@@ -90,12 +91,24 @@ export const simulateFault = async (req, res) => {
         }
 
         // Map faultCode to descriptive details
-        let mappedName = "Over Temperature";
-        let mappedMessage = "Thermal sensor exceeded safe operating limit";
-        let mappedType = "overheat";
+        let mappedName = "Emergency Stop";
+        let mappedMessage = "Emergency shutdown initiated by emergency stop button";
+        let mappedType = "emergency stop";
         let severity = "high";
 
-        if (faultCode === "VOLT_HIGH") {
+        if (faultCode === "OVER_TEMP" || faultCode === "TEMP_HIGH") {
+            mappedName = "Over Temperature";
+            mappedMessage = "Thermal sensor exceeded safe operating limit";
+            mappedType = "overheat";
+        } else if (faultCode === "CONNECTOR_FAILURE") {
+            mappedName = "Connector Failure";
+            mappedMessage = "Connector pin degradation or lock failure detected";
+            mappedType = "connector failure";
+        } else if (faultCode === "POWER_FAILURE") {
+            mappedName = "Power Failure";
+            mappedMessage = "Power grid instability or utility loss detected";
+            mappedType = "power failure";
+        } else if (faultCode === "VOLT_HIGH") {
             mappedName = "Over Voltage";
             mappedMessage = "Over voltage detected on charging circuit";
             mappedType = "overvoltage";
@@ -109,62 +122,20 @@ export const simulateFault = async (req, res) => {
             mappedType = "emergency stop";
         }
 
-        // 1. Stop charging session if active
+        // 1. Pause charging session if active - status = FAULT_PAUSED
         const tx = await Transaction.findOne({ stationId: station._id, status: "active" });
         let sessionId = null;
 
         if (tx) {
             sessionId = tx.sessionId;
-            
-            // Try to notify the simulator via OCPP
-            const ocpp = req.ocppCentralSystem;
-            if (ocpp && ocpp.isConnected(station.stationNumber)) {
-                try {
-                    await ocpp.sendCall(station.stationNumber, "RemoteStopTransaction", { transactionId: tx.ocppTransactionId });
-                } catch (ocppErr) {
-                    console.warn(`Could not remote stop simulator: ${ocppErr.message}`);
-                }
-            }
-
-            // Programmatically complete the transaction/session in the DB immediately
-            tx.status = "completed";
-            tx.endTime = new Date();
-            const energyUsed = tx.energyUsed || 0;
-            const { pricePerKwh, convenienceFee, tax } = calculateCurrentRate(station, new Date());
-            tx.appliedPrice = pricePerKwh;
-            tx.convenienceFee = convenienceFee;
-            tx.tax = tax;
-            tx.cost = energyUsed * pricePerKwh + convenienceFee + tax;
+            tx.status = "FAULT_PAUSED";
             await tx.save();
 
             const session = await Session.findOne({ $or: [{ _id: tx.sessionId }, { orderId: tx.orderId }, { paymentId: tx.paymentId }] });
             if (session) {
-                session.status = "completed";
-                session.endTime = new Date();
-                session.cost = tx.cost;
-                session.energyUsed = energyUsed;
+                session.status = "FAULT_PAUSED";
                 await session.save();
             }
-
-            const Payment = (await import("../models/Payment.js")).default;
-            const payment = await Payment.findOne({ $or: [{ sessionId: tx.sessionId }, { orderId: tx.orderId }, { paymentId: tx.paymentId }] });
-            if (payment) {
-                payment.status = "completed";
-                payment.actualAmount = tx.cost;
-                await payment.save();
-            }
-
-            // Emit live transaction stop update
-            ocpp?.io?.emit("transaction_update", {
-                stationId: station._id,
-                stationNumber: station.stationNumber,
-                connectorId: tx.connectorId,
-                transactionId: tx.ocppTransactionId,
-                status: "completed",
-                endedAt: tx.endTime,
-                energyUsed: tx.energyUsed,
-                cost: tx.cost,
-            });
         }
 
         // 2. Create Fault record
@@ -196,8 +167,9 @@ export const simulateFault = async (req, res) => {
         await alert.save();
 
         // 4. Update Station & Connector Status
-        station.status = "Faulted";
+        station.status = "FAULT";
         station.faultStatus = mappedType;
+        station.health = "WARNING";
         if (station.connectors && station.connectors.length > 0) {
             const conn = station.connectors.find(c => c.connectorId === 1);
             if (conn) {
@@ -214,7 +186,7 @@ export const simulateFault = async (req, res) => {
             ocpp.io.emit("station_update", {
                 stationId: station._id,
                 stationNumber: station.stationNumber,
-                status: "Faulted",
+                status: "FAULT",
                 connectorId: 1,
                 connectorStatus: "Faulted",
                 errorCode: faultCode
@@ -228,6 +200,13 @@ export const simulateFault = async (req, res) => {
                 message: fault.message,
                 severity: fault.severity,
                 createdAt: fault.createdAt,
+            });
+
+            // Trigger transaction_update to refresh the live session card instantly on the frontend
+            ocpp.io.emit("transaction_update", {
+                stationId: station._id,
+                stationNumber: station.stationNumber,
+                status: "FAULT_PAUSED"
             });
         }
 
@@ -245,37 +224,131 @@ export const resolveFault = async (req, res) => {
 
         if (!fault) return res.status(404).json({ error: "Fault not found" });
 
+        const previousStatus = fault.status;
         fault.status = "RESOLVED";
         fault.resolvedAt = new Date();
+        fault.resolvedBy = req.user?.id || req.user?._id;
         await fault.save();
 
-        // Also mark any Alerts for this station as RESOLVED
-        await Alert.updateMany({ stationId: fault.stationId, status: "ACTIVE" }, { status: "RESOLVED" });
+        // Check if there are any remaining ACTIVE faults for that station
+        const activeFaultCount = await Fault.countDocuments({
+            stationId: fault.stationId,
+            status: { $in: ["active", "ACTIVE"] }
+        });
 
-        // Restore Station and Connector
         const station = await Station.findById(fault.stationId);
+        let newStationStatus = "online";
+        let newConnectorStatus = "Available";
+        let newErrorCode = "NoError";
+
         if (station) {
-            station.status = "online";
-            station.faultStatus = "none";
-            if (station.connectors && station.connectors.length > 0) {
-                const conn = station.connectors.find(c => c.connectorId === 1);
-                if (conn) {
-                    conn.status = "Available";
-                    conn.errorCode = "NoError";
-                    conn.updatedAt = new Date();
+            if (activeFaultCount === 0) {
+                // Check if there was an active transaction paused due to fault
+                const tx = await Transaction.findOne({ stationId: station._id, status: "FAULT_PAUSED" });
+                let hasActiveCharging = false;
+                
+                if (tx) {
+                    tx.status = "active";
+                    await tx.save();
+                    
+                    const session = await Session.findOne({ $or: [{ _id: tx.sessionId }, { orderId: tx.orderId }, { paymentId: tx.paymentId }] });
+                    if (session) {
+                        session.status = "active";
+                        await session.save();
+                    }
+                    hasActiveCharging = true;
+                }
+
+                station.status = hasActiveCharging ? "charging" : "online";
+                station.faultStatus = "none";
+                station.health = "NORMAL";
+                station.lastResolvedAt = new Date();
+
+                if (station.connectors && station.connectors.length > 0) {
+                    const conn = station.connectors.find(c => c.connectorId === 1);
+                    if (conn) {
+                        conn.status = hasActiveCharging ? "Charging" : "Available";
+                        conn.errorCode = "NoError";
+                        conn.updatedAt = new Date();
+                    }
+                }
+                newStationStatus = station.status;
+                newConnectorStatus = hasActiveCharging ? "Charging" : "Available";
+                
+                // Mark any ACTIVE Alerts for this station as RESOLVED
+                await Alert.updateMany({ stationId: fault.stationId, status: "ACTIVE" }, { status: "RESOLVED" });
+            } else {
+                newStationStatus = "FAULT";
+                newConnectorStatus = "Faulted";
+                
+                // Find another active fault to map the faultStatus and faultCode
+                const nextActiveFault = await Fault.findOne({
+                    stationId: fault.stationId,
+                    status: { $in: ["active", "ACTIVE"] }
+                });
+                
+                station.status = "FAULT";
+                station.faultStatus = nextActiveFault ? nextActiveFault.type : "Faulted";
+                station.health = "WARNING";
+
+                if (station.connectors && station.connectors.length > 0) {
+                    const conn = station.connectors.find(c => c.connectorId === 1);
+                    if (conn) {
+                        conn.status = "Faulted";
+                        conn.errorCode = nextActiveFault ? nextActiveFault.faultCode : "Faulted";
+                        newErrorCode = conn.errorCode;
+                        conn.updatedAt = new Date();
+                    }
                 }
             }
+            
             await station.save();
 
-            req.ocppCentralSystem?.io?.emit("station_update", {
-                stationId: station._id,
-                stationNumber: station.stationNumber,
-                status: "online",
-                connectorId: 1,
-                connectorStatus: "Available",
-                errorCode: "NoError"
-            });
+            // Emit Real-time OCPP and dashboard updates
+            const ocpp = req.ocppCentralSystem;
+            if (ocpp?.io) {
+                // 1. Emit station_status_updated (required by spec)
+                ocpp.io.emit("station_status_updated", {
+                    stationId: station._id,
+                    stationNumber: station.stationNumber,
+                    status: station.status,
+                    health: station.health,
+                    lastResolvedAt: station.lastResolvedAt,
+                    activeFaultCount
+                });
+
+                // 2. Emit standard station_update
+                ocpp.io.emit("station_update", {
+                    stationId: station._id,
+                    stationNumber: station.stationNumber,
+                    status: station.status,
+                    health: station.health,
+                    faultStatus: station.faultStatus,
+                    connectorId: 1,
+                    connectorStatus: newConnectorStatus,
+                    errorCode: newErrorCode
+                });
+
+                // 3. Emit fault_resolved for frontend cache invalidation
+                ocpp.io.emit("fault_resolved", {
+                    faultId: fault._id,
+                    stationId: station._id,
+                    stationNumber: station.stationNumber,
+                    activeFaultCount
+                });
+
+                // 4. Trigger transaction_update to refresh charging state instantly on live sessions page
+                ocpp.io.emit("transaction_update", {
+                    stationId: station._id,
+                    stationNumber: station.stationNumber,
+                    status: activeFaultCount === 0 ? "active" : "FAULT_PAUSED"
+                });
+            }
         }
+
+        // Store Audit Log event
+        const actionMessage = `Fault Resolved | Fault ID: ${fault._id} | Station ID: ${fault.stationId} | Resolved By: ${req.user?.id || req.user?._id} | Previous Status: ${previousStatus} | New Status: ${activeFaultCount === 0 ? "AVAILABLE" : "FAULTED"}`;
+        await logEvent(req.user?.id || req.user?._id, actionMessage, req);
 
         res.json(fault);
     } catch (err) {

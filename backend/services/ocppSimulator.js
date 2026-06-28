@@ -232,29 +232,54 @@ class StationClient {
   startStreamingTelemetry() {
     if (this.chargingTimer) clearInterval(this.chargingTimer);
     
-    this.chargingTimer = setInterval(() => {
+    this.chargingTimer = setInterval(async () => {
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.activeTransactionId) {
         clearInterval(this.chargingTimer);
         this.chargingTimer = null;
         return;
       }
 
-      this.energyUsed += 0.05; // Increment 0.05 kWh every 5 seconds (fast charging simulation)
+      // Check if station has active faults in database
+      let isFaulted = false;
+      try {
+        const station = await Station.findOne({ stationNumber: this.stationNumber });
+        if (station && (station.status === "Faulted" || station.status === "FAULT")) {
+          isFaulted = true;
+        }
+      } catch (err) {
+        console.error(`⚠️ [OCPP Simulator] Failed to check station status for ${this.stationNumber}:`, err.message);
+      }
 
       const meterValuePayload = {
         connectorId: 1,
         transactionId: this.activeTransactionId,
         meterValue: [{
           timestamp: new Date().toISOString(),
-          sampledValue: [
-            { measurand: "Voltage", value: 230 + Math.random() * 5 },
-            { measurand: "Current", value: 16 + Math.random() * 2 },
-            { measurand: "Power", value: 7.2 + Math.random() * 0.5 },
-            { measurand: "Temperature", value: 35 + Math.random() * 3 },
-            { measurand: "Energy.Active.Import.Register", value: this.energyUsed }
-          ]
+          sampledValue: []
         }]
       };
+
+      if (isFaulted) {
+        // Station is stopped due to fault - send 0 kW power/current/voltage
+        meterValuePayload.meterValue[0].sampledValue = [
+          { measurand: "Voltage", value: 0 },
+          { measurand: "Current", value: 0 },
+          { measurand: "Power", value: 0 },
+          { measurand: "Temperature", value: 45 },
+          { measurand: "Energy.Active.Import.Register", value: this.energyUsed }
+        ];
+      } else {
+        // Normal operation - increment energy and stream active charging data
+        this.energyUsed += 0.05; // Increment 0.05 kWh every 5 seconds (fast charging simulation)
+        
+        meterValuePayload.meterValue[0].sampledValue = [
+          { measurand: "Voltage", value: 230 + Math.random() * 5 },
+          { measurand: "Current", value: 16 + Math.random() * 2 },
+          { measurand: "Power", value: 7.2 + Math.random() * 0.5 },
+          { measurand: "Temperature", value: 35 + Math.random() * 3 },
+          { measurand: "Energy.Active.Import.Register", value: this.energyUsed }
+        ];
+      }
 
       this.sendCall("MeterValues", meterValuePayload).catch((err) => {
         console.error(`❌ [OCPP Simulator] Station ${this.stationNumber} MeterValues send failed:`, err.message);

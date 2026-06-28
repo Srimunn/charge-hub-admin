@@ -39,8 +39,26 @@ export const getToken = () => {
 const clearToken = () => {
   if (typeof window !== "undefined") {
     localStorage.removeItem("token");
+    localStorage.removeItem("userName");
+    localStorage.removeItem("userEmail");
+    localStorage.removeItem("userMobile");
+    localStorage.removeItem("userId");
+    window.dispatchEvent(new Event("auth-expired"));
   }
 };
+
+const originalFetch = typeof window !== 'undefined' ? window.fetch : globalThis.fetch;
+
+const customFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  const res = await originalFetch(input, init);
+  if (res.status === 401) {
+    clearToken();
+    throw new Error("Session expired. Please log in again.");
+  }
+  return res;
+};
+
+const fetch = customFetch;
 
 const authHeaders = () => {
   const token = getToken();
@@ -90,6 +108,68 @@ export const verifyOTP = async (data: any) => {
   const json = await res.json();
   if (!json?.token) throw new Error('Authentication token not received');
   return json;
+};
+
+export const requestPasswordOTP = async () => {
+  const res = await fetch(`${BASE_URL}/auth/request-password-otp`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+};
+
+export const changePassword = async (data: any) => {
+  const res = await fetch(`${BASE_URL}/auth/change-password`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+};
+
+export const getMe = async () => {
+  const res = await fetch(`${BASE_URL}/auth/me`, {
+    method: "GET",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+};
+
+export const verifyPasswordOTP = async (otp: string) => {
+  const res = await fetch(`${BASE_URL}/auth/verify-password-otp`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ otp }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+};
+
+export const updateSessionTimeout = async (timeout: number) => {
+  const res = await fetch(`${BASE_URL}/auth/session-timeout`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ timeout }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+};
+
+export const setPin = async (pin: string, mobile?: string, explicitToken?: string) => {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const token = explicitToken || getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(`${BASE_URL}/auth/set-pin`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ pin, mobile }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
 };
 
 // GET dashboard KPIs
@@ -288,9 +368,146 @@ export const simulateFault = async (stationId: string, faultCode: string) => {
   return res.json();
 };
 
-export const getReports = async () => {
+export const getReports = async (filters?: any) => {
   if (!getToken()) return null;
-  const res = await fetch(`${BASE_URL}/dashboard/reports`, { headers: authHeaders() });
+  let url = `${BASE_URL}/dashboard/reports`;
+  if (filters) {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== '') {
+        params.append(key, String(val));
+      }
+    });
+    const qs = params.toString();
+    if (qs) url += `?${qs}`;
+  }
+  const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to fetch reports");
+  return res.json();
+};
+
+export const getRevenueAnalytics = async (filters?: any) => {
+  if (!getToken()) return null;
+  let url = `${BASE_URL}/dashboard/analytics/revenue`;
+  if (filters) {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== '') {
+        params.append(key, String(val));
+      }
+    });
+    const qs = params.toString();
+    if (qs) url += `?${qs}`;
+  }
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch revenue analytics");
+  return res.json();
+};
+
+export const getSessionAnalytics = async (filters?: any) => {
+  if (!getToken()) return null;
+  let url = `${BASE_URL}/dashboard/analytics/sessions`;
+  if (filters) {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== '') {
+        params.append(key, String(val));
+      }
+    });
+    const qs = params.toString();
+    if (qs) url += `?${qs}`;
+  }
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch session analytics");
+  return res.json();
+};
+
+export const getFaultAnalytics = async (filters?: any) => {
+  if (!getToken()) return null;
+  let url = `${BASE_URL}/dashboard/analytics/faults`;
+  if (filters) {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== '') {
+        params.append(key, String(val));
+      }
+    });
+    const qs = params.toString();
+    if (qs) url += `?${qs}`;
+  }
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch fault analytics");
+  return res.json();
+};
+
+export const getUtilizationAnalytics = async (filters?: any) => {
+  if (!getToken()) return null;
+  let url = `${BASE_URL}/dashboard/analytics/utilization`;
+  if (filters) {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== '') {
+        params.append(key, String(val));
+      }
+    });
+    const qs = params.toString();
+    if (qs) url += `?${qs}`;
+  }
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch utilization analytics");
+  return res.json();
+};
+
+// NOTIFICATIONS APIs
+export const getNotifications = async () => {
+  if (!getToken()) return [];
+  const res = await fetch(`${BASE_URL}/notifications`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch notifications");
+  return res.json();
+};
+
+export const getNotificationStats = async () => {
+  if (!getToken()) return null;
+  const res = await fetch(`${BASE_URL}/notifications/stats`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch notification stats");
+  return res.json();
+};
+
+export const sendTestNotification = async (data: { title: string; message: string; type?: string; metadata?: any }) => {
+  if (!getToken()) return null;
+  const res = await fetch(`${BASE_URL}/notifications/send`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+};
+
+export const markNotificationsRead = async (notificationIds?: string[]) => {
+  if (!getToken()) return null;
+  const res = await fetch(`${BASE_URL}/notifications/read`, {
+    method: "PUT",
+    headers: authHeaders(),
+    body: JSON.stringify({ notificationIds }),
+  });
+  if (!res.ok) throw new Error("Failed to mark notifications as read");
+  return res.json();
+};
+
+export const updateNotificationPreferences = async (preferences: {
+  emailAlerts?: boolean;
+  smsAlerts?: boolean;
+  pushAlerts?: boolean;
+  faultAlerts?: boolean;
+  paymentAlerts?: boolean;
+}) => {
+  if (!getToken()) return null;
+  const res = await fetch(`${BASE_URL}/notifications/preferences`, {
+    method: "PUT",
+    headers: authHeaders(),
+    body: JSON.stringify(preferences),
+  });
+  if (!res.ok) throw new Error("Failed to update notification preferences");
   return res.json();
 };

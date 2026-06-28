@@ -39,6 +39,8 @@ const stationSchema = new mongoose.Schema({
     }],
     faultStatus: { type: String, default: "none" },
     totalEnergyConsumed: { type: Number, default: 0 },
+    health: { type: String, default: "NORMAL" },
+    lastResolvedAt: { type: Date },
     
     createdAt: { type: Date, default: Date.now }
 }, {

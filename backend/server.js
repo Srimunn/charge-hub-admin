@@ -33,6 +33,8 @@ import sessionRoutes from "./routes/sessionRoutes.js";
 import faultRoutes from "./routes/faultRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
+import notificationRoutes from "./routes/notificationRoutes.js";
+import { setIoInstance } from "./services/notificationService.js";
 
 import http from "http";
 import { Server } from "socket.io";
@@ -55,6 +57,9 @@ const io = new Server(server, {
   }
 });
 
+// Link notification service with Socket.io instance
+setIoInstance(io);
+
 const ocppCentralSystem = new OcppCentralSystem({ server, io, pathPrefix: "/ocpp" });
 ocppCentralSystem.attach();
 
@@ -74,6 +79,7 @@ app.use('/api/sessions', sessionRoutes);
 app.use('/api/faults', faultRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 console.log("MONGO_URI:", process.env.MONGO_URI);
 
@@ -149,6 +155,12 @@ const connectDB = () => {
         const { dbName } = getClusterAndDb(mongoUri);
         console.log(`📊 Database: ${dbName}`);
       }
+
+      // Synchronize User collection indexes to ensure sparse settings are applied
+      User.cleanIndexes()
+        .then(() => User.createIndexes())
+        .then(() => console.log("✅ User model indexes synchronized successfully"))
+        .catch(err => console.error("❌ Failed to synchronize User indexes:", err));
     })
     .catch(err => {
       console.error("❌ MongoDB Connection Error:", err?.message || err);

@@ -127,9 +127,11 @@ export function KPICards() {
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       {kpis.map((kpi, index) => {
-        const spanClass = kpi.size === 'small' ? 'col-span-1' : 'col-span-2';
+        const spanClass = (kpi.size === 'large' || kpi.title === 'Fault Alerts')
+          ? 'col-span-1 sm:col-span-2'
+          : 'col-span-1 sm:col-span-1';
 
         const CardUI = (
           <Card
