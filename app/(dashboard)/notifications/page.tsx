@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { 
   getNotifications, getNotificationStats, sendTestNotification, 
-  markNotificationsRead, updateNotificationPreferences 
+  markNotificationsRead, updateNotificationPreferences, API_URL 
 } from "@/services/api";
 import { getSocket } from "@/lib/socket";
 
@@ -57,7 +57,7 @@ export default function NotificationsPage() {
       try {
         const token = localStorage.getItem("token");
         if (!token) return;
-        const res = await fetch("http://localhost:5000/api/auth/me", {
+        const res = await fetch(`${API_URL}/api/auth/me`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },

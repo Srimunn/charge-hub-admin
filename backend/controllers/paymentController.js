@@ -128,6 +128,19 @@ export const verifyPayment = async (req, res) => {
         payment.status = "paid";
         await payment.save();
 
+        try {
+            const { sendNotification } = await import("../services/notificationService.js");
+            await sendNotification({
+                userId: payment.userId,
+                title: "Payment Successful",
+                message: `Your payment of ₹${payment.amount} was successful. Order ID: ${payment.orderId}.`,
+                type: "payment",
+                metadata: { paymentId: payment._id, orderId: payment.orderId, amount: payment.amount }
+            });
+        } catch (notifErr) {
+            console.error("❌ Error sending Payment Success notification:", notifErr.message);
+        }
+
         if (req.ocppCentralSystem?.io) {
             req.ocppCentralSystem.io.emit('payment_update', payment);
         }
@@ -278,6 +291,19 @@ const handleStartFailure = async (payment, reason, res) => {
         payment.status = "pending_refund";
         await payment.save();
 
+        try {
+            const { sendNotification } = await import("../services/notificationService.js");
+            await sendNotification({
+                userId: payment.userId,
+                title: "Refund Initiated",
+                message: `Charging start failed due to: ${reason}. A full refund of ₹${payment.totalAmount} has been initiated.`,
+                type: "payment",
+                metadata: { paymentId: payment._id, amount: payment.totalAmount }
+            });
+        } catch (err) {
+            console.error("❌ Error sending Refund Initiated notification:", err.message);
+        }
+
         let refundId = `ref_mock_${Math.random().toString(36).substring(2, 10)}`;
         if (payment.paymentId && !payment.paymentId.startsWith('pay_mock_')) {
             try {
@@ -296,6 +322,19 @@ const handleStartFailure = async (payment, reason, res) => {
         payment.refundAmount = payment.totalAmount;
         payment.refundTimestamp = new Date();
         await payment.save();
+
+        try {
+            const { sendNotification } = await import("../services/notificationService.js");
+            await sendNotification({
+                userId: payment.userId,
+                title: "Refund Completed",
+                message: `Your refund of ₹${payment.totalAmount} has been successfully credited. Refund ID: ${refundId}.`,
+                type: "payment",
+                metadata: { paymentId: payment._id, refundId, amount: payment.totalAmount }
+            });
+        } catch (err) {
+            console.error("❌ Error sending Refund Completed notification:", err.message);
+        }
 
         if (payment.ocppCentralSystem?.io) {
             payment.ocppCentralSystem.io.emit('payment_update', payment);
@@ -343,10 +382,25 @@ export const webhookHandler = async (req, res) => {
 
         if (eventName === 'payment.captured' || eventName === 'payment.authorized') {
             if (paymentData && paymentData.order_id) {
-                await Payment.findOneAndUpdate(
+                const dbPayment = await Payment.findOneAndUpdate(
                     { orderId: paymentData.order_id },
-                    { status: "paid", paymentId: paymentData.id }
+                    { status: "paid", paymentId: paymentData.id },
+                    { new: true }
                 );
+                if (dbPayment) {
+                    try {
+                        const { sendNotification } = await import("../services/notificationService.js");
+                        await sendNotification({
+                            userId: dbPayment.userId,
+                            title: "Payment Successful",
+                            message: `Your payment of ₹${dbPayment.amount} was captured successfully.`,
+                            type: "payment",
+                            metadata: { paymentId: dbPayment._id, orderId: dbPayment.orderId, amount: dbPayment.amount }
+                        });
+                    } catch (notifErr) {
+                        console.error("❌ Error sending Payment Success webhook notification:", notifErr.message);
+                    }
+                }
                 if (req.ocppCentralSystem?.io) {
                     req.ocppCentralSystem.io.emit('payment_success', { orderId: paymentData.order_id });
                     req.ocppCentralSystem.io.emit('transaction_update', { event: 'payment.captured', orderId: paymentData.order_id });
@@ -354,10 +408,25 @@ export const webhookHandler = async (req, res) => {
             }
         } else if (eventName === 'payment.failed') {
             if (paymentData && paymentData.order_id) {
-                await Payment.findOneAndUpdate(
+                const dbPayment = await Payment.findOneAndUpdate(
                     { orderId: paymentData.order_id },
-                    { status: "failed", paymentId: paymentData.id }
+                    { status: "failed", paymentId: paymentData.id },
+                    { new: true }
                 );
+                if (dbPayment) {
+                    try {
+                        const { sendNotification } = await import("../services/notificationService.js");
+                        await sendNotification({
+                            userId: dbPayment.userId,
+                            title: "Payment Failed",
+                            message: `Your payment order ${dbPayment.orderId} of ₹${dbPayment.amount} has failed.`,
+                            type: "payment",
+                            metadata: { paymentId: dbPayment._id, orderId: dbPayment.orderId, amount: dbPayment.amount }
+                        });
+                    } catch (notifErr) {
+                        console.error("❌ Error sending Payment Failed webhook notification:", notifErr.message);
+                    }
+                }
                 if (req.ocppCentralSystem?.io) {
                     req.ocppCentralSystem.io.emit('payment_failed', { orderId: paymentData.order_id });
                     req.ocppCentralSystem.io.emit('transaction_update', { event: 'payment.failed', orderId: paymentData.order_id });

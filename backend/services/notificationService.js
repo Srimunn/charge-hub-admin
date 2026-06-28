@@ -244,8 +244,26 @@ export const sendNotification = async ({ userId, title, message, type, metadata 
         }
 
         // 6. Dispatch to Push
-        if (prefs.pushAlerts && user.fcmToken) {
-            results.push = await sendPush(user.fcmToken, title, message, metadata);
+        if (prefs.pushAlerts) {
+            try {
+                const DeviceToken = (await import("../models/DeviceToken.js")).default;
+                const tokens = await DeviceToken.find({ userId });
+                if (tokens.length > 0) {
+                    results.push = [];
+                    for (const t of tokens) {
+                        const pushRes = await sendPush(t.deviceToken, title, message, metadata);
+                        results.push.push({ token: t.deviceToken, result: pushRes });
+                    }
+                } else if (user.fcmToken) {
+                    // Fallback to legacy single token on user model
+                    results.push = await sendPush(user.fcmToken, title, message, metadata);
+                }
+            } catch (deviceTokenErr) {
+                console.error("❌ Failed to query multiple device tokens for user:", deviceTokenErr.message);
+                if (user.fcmToken) {
+                    results.push = await sendPush(user.fcmToken, title, message, metadata);
+                }
+            }
         }
 
         return { success: true, results };

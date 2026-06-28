@@ -3,18 +3,24 @@ import { protect } from "../middleware/authMiddleware.js";
 import Notification from "../models/Notification.js";
 import User from "../models/User.js";
 import { sendNotification } from "../services/notificationService.js";
+import DeviceToken from "../models/DeviceToken.js";
 
 const router = express.Router();
 
-// @desc    Get all notifications for logged-in operator
+// @desc    Get all notifications for logged-in operator with pagination
 // @route   GET /api/notifications
 // @access  Private
 router.get("/", protect, async (req, res) => {
     try {
         const userId = req.user._id || req.user.id;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
+        const skip = (page - 1) * limit;
+
         const notifications = await Notification.find({ userId })
             .sort({ createdAt: -1 })
-            .limit(100);
+            .skip(skip)
+            .limit(limit);
         res.status(200).json(notifications);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -145,6 +151,67 @@ router.put("/preferences", protect, async (req, res) => {
         ).select("-password");
 
         res.status(200).json(updatedUser.notificationPreferences);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// @desc    Register native device push token (FCM)
+// @route   POST /api/notifications/register-device
+// @access  Private
+router.post("/register-device", protect, async (req, res) => {
+    try {
+        const userId = req.user._id || req.user.id;
+        const { token, deviceToken, platform, appVersion } = req.body;
+        const actualToken = deviceToken || token;
+
+        if (!actualToken) {
+            return res.status(400).json({ error: "Device token is required" });
+        }
+
+        // Upsert token in deviceTokens collection
+        await DeviceToken.findOneAndUpdate(
+            { deviceToken: actualToken },
+            { 
+                userId, 
+                platform: platform || "android", 
+                appVersion: appVersion || "1.0.0" 
+            },
+            { upsert: true, new: true }
+        );
+
+        // Also update the main user document fcmToken for convenience
+        await User.findByIdAndUpdate(userId, { fcmToken: actualToken });
+
+        res.status(200).json({ success: true, message: "Device token registered successfully" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// @desc    Unregister device push token (FCM) on logout
+// @route   DELETE /api/notifications/unregister-device
+// @access  Private
+router.delete("/unregister-device", protect, async (req, res) => {
+    try {
+        const userId = req.user._id || req.user.id;
+        const { token, deviceToken } = req.body;
+        const actualToken = deviceToken || token;
+
+        if (actualToken) {
+            await DeviceToken.deleteOne({ deviceToken: actualToken, userId });
+        } else {
+            await DeviceToken.deleteMany({ userId });
+        }
+
+        // Clear user fcmToken field if it matches
+        const user = await User.findById(userId);
+        if (user && (!actualToken || user.fcmToken === actualToken)) {
+            user.fcmToken = "";
+            await user.save();
+        }
+
+        res.status(200).json({ success: true, message: "Device token unregistered successfully" });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

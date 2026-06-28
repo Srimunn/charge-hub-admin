@@ -222,11 +222,27 @@ export default class OcppCentralSystem {
   async markStationOnline(chargePointId) {
     const station = await this.findStation(chargePointId);
     if (!station) return;
+    const wasOffline = (station.status !== "online" && !station.ocppConnected);
     station.status = "online";
     station.lastSeen = new Date();
     station.ocppConnected = true;
     await station.save();
     this.io.emit("station_update", { stationId: station._id, stationNumber: station.stationNumber, status: station.status });
+
+    if (wasOffline && station.userId) {
+      try {
+        const { sendNotification } = await import("./notificationService.js");
+        await sendNotification({
+          userId: station.userId,
+          title: "Station Online Alert",
+          message: `Your EV charging station ${station.stationName || station.stationNumber} is back online.`,
+          type: "system",
+          metadata: { stationId: station._id, stationNumber: station.stationNumber }
+        });
+      } catch (err) {
+        console.error("❌ Error dispatching Station Online notification:", err.message);
+      }
+    }
   }
 
   async markStationOffline(chargePointId) {
@@ -236,6 +252,29 @@ export default class OcppCentralSystem {
     station.ocppConnected = false;
     await station.save();
     this.io.emit("station_update", { stationId: station._id, stationNumber: station.stationNumber, status: station.status });
+
+    // Send Station Offline and OCPP Disconnect alerts to the operator
+    if (station.userId) {
+      try {
+        const { sendNotification } = await import("./notificationService.js");
+        await sendNotification({
+          userId: station.userId,
+          title: "Station Offline Alert",
+          message: `Your EV charging station ${station.stationName || station.stationNumber} is offline. Please check connectivity.`,
+          type: "fault",
+          metadata: { stationId: station._id, stationNumber: station.stationNumber }
+        });
+        await sendNotification({
+          userId: station.userId,
+          title: "OCPP Disconnection Alert",
+          message: `EV Charger ${station.stationName || station.stationNumber} has disconnected from the OCPP Central System.`,
+          type: "fault",
+          metadata: { stationId: station._id, stationNumber: station.stationNumber }
+        });
+      } catch (err) {
+        console.error("❌ Error dispatching Station Offline/Disconnect notifications:", err.message);
+      }
+    }
   }
 
   emitOcppStatus(chargePointId, connected) {
@@ -245,6 +284,7 @@ export default class OcppCentralSystem {
   async onBootNotification(chargePointId, payload) {
     const station = await this.findStation(chargePointId);
     if (!station) return;
+    const wasOffline = (station.status !== "online" && !station.ocppConnected);
     station.ocpp = {
       ...station.ocpp,
       vendor: payload?.chargePointVendor,
@@ -256,6 +296,21 @@ export default class OcppCentralSystem {
     station.ocppConnected = true;
     await station.save();
     this.io.emit("station_update", { stationId: station._id, stationNumber: station.stationNumber, status: station.status });
+
+    if (wasOffline && station.userId) {
+      try {
+        const { sendNotification } = await import("./notificationService.js");
+        await sendNotification({
+          userId: station.userId,
+          title: "Station Online Alert",
+          message: `Your EV charging station ${station.stationName || station.stationNumber} has successfully booted and is online.`,
+          type: "system",
+          metadata: { stationId: station._id, stationNumber: station.stationNumber }
+        });
+      } catch (err) {
+        console.error("❌ Error dispatching Boot notification:", err.message);
+      }
+    }
   }
 
   async onHeartbeat(chargePointId) {
@@ -294,6 +349,21 @@ export default class OcppCentralSystem {
         status: "active",
         raw: { errorCode, status, connectorId },
       });
+
+      if (station.userId) {
+        try {
+          const { sendNotification } = await import("./notificationService.js");
+          await sendNotification({
+            userId: station.userId,
+            title: "Charger Fault Detected",
+            message: `Station ${station.stationName || station.stationNumber} has reported a fault: ${payload?.info || errorCode}. Severity: High.`,
+            type: "fault",
+            metadata: { stationId: station._id, stationNumber: station.stationNumber, faultId: fault._id, type: faultType }
+          });
+        } catch (err) {
+          console.error("❌ Error dispatching Fault notification:", err.message);
+        }
+      }
       this.io.emit("fault_alert", {
         stationId: station._id,
         stationNumber: station.stationNumber,
@@ -463,6 +533,22 @@ export default class OcppCentralSystem {
       orderId,
     });
 
+    if (idTag.startsWith("user:")) {
+      try {
+        const userId = idTag.replace("user:", "");
+        const { sendNotification } = await import("./notificationService.js");
+        await sendNotification({
+          userId,
+          title: "Charging Started",
+          message: `Your EV charging session has successfully started at station ${station.stationName || station.stationNumber}.`,
+          type: "session_start",
+          metadata: { stationId: station._id, stationNumber: station.stationNumber, ocppTransactionId }
+        });
+      } catch (notifErr) {
+        console.error("❌ Error sending StartTransaction notification:", notifErr.message);
+      }
+    }
+
     this.io.emit("transaction_update", {
       stationId: station._id,
       stationNumber: station.stationNumber,
@@ -504,6 +590,23 @@ export default class OcppCentralSystem {
 
       await tx.save();
 
+      const idTag = tx.idTag;
+      if (idTag && idTag.startsWith("user:")) {
+        try {
+          const userId = idTag.replace("user:", "");
+          const { sendNotification } = await import("./notificationService.js");
+          await sendNotification({
+            userId,
+            title: "Charging Completed",
+            message: `Your charging session at station ${station.stationName || station.stationNumber} is complete. Total Energy: ${tx.energyUsed?.toFixed(2) || 0} kWh. Cost: ₹${tx.cost?.toFixed(2) || 0}.`,
+            type: "session_end",
+            metadata: { stationId: station._id, stationNumber: station.stationNumber, ocppTransactionId: tx.ocppTransactionId, energyUsed: tx.energyUsed, cost: tx.cost }
+          });
+        } catch (notifErr) {
+          console.error("❌ Error sending StopTransaction notification:", notifErr.message);
+        }
+      }
+
       // Reconcile Cost and Auto-Refund
       try {
         const Payment = (await import("../models/Payment.js")).default;
@@ -538,6 +641,22 @@ export default class OcppCentralSystem {
             
             this.io.emit("payment_update", payment);
 
+            if (tx.idTag.startsWith("user:")) {
+              try {
+                const userId = tx.idTag.replace("user:", "");
+                const { sendNotification } = await import("./notificationService.js");
+                await sendNotification({
+                  userId,
+                  title: "Refund Initiated",
+                  message: `Your EV charging session was completed with unused energy difference. A refund of ₹${refundAmount.toFixed(2)} has been initiated.`,
+                  type: "payment",
+                  metadata: { paymentId: payment._id, amount: refundAmount }
+                });
+              } catch (notifErr) {
+                console.error("❌ Error sending Refund Initiated stop notification:", notifErr.message);
+              }
+            }
+
             let refundId = `ref_mock_${Math.random().toString(36).substring(2, 10)}`;
             if (payment.paymentId && !payment.paymentId.startsWith("pay_mock_")) {
               try {
@@ -560,6 +679,22 @@ export default class OcppCentralSystem {
             payment.refundId = refundId;
             payment.refundTimestamp = new Date();
             await payment.save();
+
+            if (tx.idTag.startsWith("user:")) {
+              try {
+                const userId = tx.idTag.replace("user:", "");
+                const { sendNotification } = await import("./notificationService.js");
+                await sendNotification({
+                  userId,
+                  title: "Refund Completed",
+                  message: `Your auto-refund of ₹${payment.refundAmount?.toFixed(2)} has been successfully credited. Refund ID: ${refundId}.`,
+                  type: "payment",
+                  metadata: { paymentId: payment._id, refundId, amount: payment.refundAmount }
+                });
+              } catch (notifErr) {
+                console.error("❌ Error sending Refund Completed stop notification:", notifErr.message);
+              }
+            }
           } else {
             payment.status = "completed";
             payment.refundAmount = 0;
