@@ -9,7 +9,9 @@ if (typeof window !== "undefined") {
 }
 
 const rawUrl = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_API_URL : undefined;
-export const API_URL = (rawUrl && rawUrl !== "undefined" && rawUrl !== "null") ? rawUrl : resolvedApiUrl;
+export const API_URL = (rawUrl && rawUrl !== "undefined" && rawUrl !== "null") 
+  ? rawUrl 
+  : (typeof window !== "undefined" ? "" : resolvedApiUrl);
 export const BASE_URL = `${API_URL}/api`;
 
 export const getImageUrl = (imagePath: string | null | undefined) => {

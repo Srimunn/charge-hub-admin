@@ -1,6 +1,17 @@
 import { io, Socket } from "socket.io-client";
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5000";
+let resolvedSocketUrl = "http://localhost:5000";
+if (typeof window !== "undefined") {
+  const host = window.location.hostname;
+  if (host.includes("charge-hub-frontend")) {
+    const backendHost = host.replace("charge-hub-frontend", "charge-hub-backend");
+    resolvedSocketUrl = `${window.location.protocol}//${backendHost}`;
+  } else {
+    resolvedSocketUrl = window.location.origin;
+  }
+}
+
+const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || resolvedSocketUrl;
 
 let socket: Socket | null = null;
 
@@ -17,4 +28,3 @@ export const getSocket = () => {
   }
   return socket;
 };
-
