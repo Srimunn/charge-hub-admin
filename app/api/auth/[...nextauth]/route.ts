@@ -7,6 +7,13 @@ if (process.env.NODE_ENV === "production") {
   dotenv.config({ path: path.join(process.cwd(), ".env.production") });
 }
 
+// Clean up empty or invalid env variables set by Docker ARG/ENV instructions at build time
+for (const key of ['NEXTAUTH_URL', 'NEXTAUTH_SECRET', 'NEXT_PUBLIC_API_URL', 'BACKEND_API_URL', 'NEXT_PUBLIC_SOCKET_URL']) {
+  if (process.env[key] === '' || process.env[key] === 'undefined' || process.env[key] === 'null') {
+    delete process.env[key];
+  }
+}
+
 import NextAuth, { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 
