@@ -19,8 +19,21 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Declare build arguments and environment variables for Next.js build time
+# NEXT_PUBLIC_* vars are baked into the JS bundle at build time
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
+# NEXTAUTH_URL is needed at build time so NextAuth can generate correct URLs
+ARG NEXTAUTH_URL
+ENV NEXTAUTH_URL=$NEXTAUTH_URL
+
+# NEXTAUTH_SECRET is needed for JWT signing during build-time prerendering
+ARG NEXTAUTH_SECRET
+ENV NEXTAUTH_SECRET=$NEXTAUTH_SECRET
+
+# BACKEND_API_URL is used server-side in next.config.mjs rewrites (not public)
+ARG BACKEND_API_URL
+ENV BACKEND_API_URL=$BACKEND_API_URL
 
 # Disable telemetry during the build
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -53,5 +66,7 @@ USER nextjs
 EXPOSE 3000
 
 ENV PORT=3000
+# trustHost is set in route.ts; HOSTNAME allows binding on all interfaces
+ENV HOSTNAME=0.0.0.0
 
 CMD ["node", "server.js"]

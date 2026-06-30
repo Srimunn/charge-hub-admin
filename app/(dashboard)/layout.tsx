@@ -3,7 +3,6 @@
 import { DashboardSidebar } from '@/components/layout/DashboardSidebar';
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { ReconnectBanner } from "@/components/ReconnectBanner";
 import { useToast } from '@/hooks/use-toast';
 import { signOut } from 'next-auth/react';
 import { getMe } from '@/services/api';
@@ -162,7 +161,6 @@ export default function DashboardLayout({
     <div className="flex h-screen w-full overflow-hidden p-0 md:p-3" style={{ backgroundColor: '#DADBDF' }}>
       <DashboardSidebar />
       <div className="flex-1 h-full overflow-hidden rounded-none md:rounded-[2.5rem] bg-background shadow-md flex flex-col border border-black/5 ml-0 md:ml-3">
-        <ReconnectBanner />
         <main className="flex-1 h-full overflow-auto">
           {children}
         </main>

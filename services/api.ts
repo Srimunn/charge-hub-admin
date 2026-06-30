@@ -1,17 +1,27 @@
-let resolvedApiUrl = "http://localhost:5000";
-
-if (typeof window !== "undefined") {
-  const host = window.location.hostname;
-  if (host.includes("charge-hub-frontend")) {
-    const backendHost = host.replace("charge-hub-frontend", "charge-hub-backend");
-    resolvedApiUrl = `${window.location.protocol}//${backendHost}`;
+// API URL resolution strategy:
+// - Browser (client-side): use "" (empty string) so all fetch calls go to the same origin,
+//   and Next.js rewrites (/api/* → backend) handle the proxying transparently.
+// - Server-side (SSR / NextAuth callbacks): use NEXT_PUBLIC_API_URL or BACKEND_API_URL
+//   so Next.js can reach the backend directly.
+const getApiUrl = (): string => {
+  // Client-side: always use relative path — Next.js rewrite proxy handles it
+  if (typeof window !== "undefined") {
+    return "";
   }
-}
+  // Server-side: prefer explicit env vars
+  const candidates = [
+    process.env.BACKEND_API_URL,
+    process.env.NEXT_PUBLIC_API_URL,
+  ];
+  for (const url of candidates) {
+    if (url && url !== "undefined" && url !== "null" && url.trim() !== "") {
+      return url.replace(/\/$/, "");
+    }
+  }
+  return process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+};
 
-const rawUrl = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_API_URL : undefined;
-export const API_URL = (rawUrl && rawUrl !== "undefined" && rawUrl !== "null") 
-  ? rawUrl 
-  : (typeof window !== "undefined" ? "" : resolvedApiUrl);
+export const API_URL = getApiUrl();
 export const BASE_URL = `${API_URL}/api`;
 
 export const getImageUrl = (imagePath: string | null | undefined) => {
@@ -21,7 +31,7 @@ export const getImageUrl = (imagePath: string | null | undefined) => {
   // High-reliability base URL resolution
   let base = API_URL;
   if (!base || base === "undefined" || base === "null") {
-    base = "http://localhost:5000";
+    base = process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
   }
   
   const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;

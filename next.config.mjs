@@ -6,15 +6,9 @@ const nextConfig = {
   images: {
     domains: ['res.cloudinary.com', 'localhost'],
   },
-  // To match the existing API calls that might use absolute paths
-  async rewrites() {
-    const backendUrl = process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
-    return [
-      {
-        source: '/api/:path((?!auth).*)',
-        destination: `${backendUrl.replace(/\/$/, '')}/api/:path*`,
-      },
-    ];
+  // Expose env variables to the browser bundle
+  env: {
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || '',
   },
 };
 

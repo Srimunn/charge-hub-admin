@@ -63,7 +63,30 @@ setIoInstance(io);
 const ocppCentralSystem = new OcppCentralSystem({ server, io, pathPrefix: "/ocpp" });
 ocppCentralSystem.attach();
 
-app.use(cors({ origin: process.env.CORS_ORIGIN || "*", credentials: true }));
+// Build allowed origins list: always allow localhost for dev + configured CORS_ORIGIN for prod
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+];
+if (process.env.CORS_ORIGIN && process.env.CORS_ORIGIN !== "http://localhost:3000") {
+  allowedOrigins.push(process.env.CORS_ORIGIN);
+}
+console.log("✅ CORS allowed origins:", allowedOrigins);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, server-to-server)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    // Also allow any nimbuz.tech subdomain for flexible deployments
+    if (origin.endsWith('.nimbuz.tech') || origin.endsWith('.lb.nimbuz.tech')) return callback(null, true);
+    console.warn(`⚠️ CORS blocked origin: ${origin}`);
+    return callback(new Error(`CORS policy: origin ${origin} not allowed`));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}));
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
