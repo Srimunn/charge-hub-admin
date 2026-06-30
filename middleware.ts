@@ -32,14 +32,19 @@ export function middleware(request: NextRequest) {
     backendAuthPaths.includes(pathname.substring('/api/auth/'.length));
 
   // 2. Check if the path matches other backend resource route categories
-  const isBackendResource =
-    pathname.startsWith('/api/users/') ||
-    pathname.startsWith('/api/stations/') ||
-    pathname.startsWith('/api/sessions/') ||
-    pathname.startsWith('/api/faults/') ||
-    pathname.startsWith('/api/payments/') ||
-    pathname.startsWith('/api/dashboard/') ||
-    pathname.startsWith('/api/notifications/');
+  const backendResources = [
+    'users',
+    'stations',
+    'sessions',
+    'faults',
+    'payments',
+    'dashboard',
+    'notifications',
+  ];
+
+  const isBackendResource = backendResources.some(resource =>
+    pathname === `/api/${resource}` || pathname.startsWith(`/api/${resource}/`)
+  );
 
   // Proxy the request to the Express backend if it matches the routing criteria
   if (isBackendAuth || isBackendResource) {
