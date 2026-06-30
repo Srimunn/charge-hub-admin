@@ -4,9 +4,10 @@
 // - Server-side (SSR / NextAuth callbacks): use NEXT_PUBLIC_API_URL or BACKEND_API_URL
 //   so Next.js can reach the backend directly.
 const getApiUrl = (): string => {
-  // Client-side: always use relative path — Next.js rewrite proxy handles it
+  // Client-side: communicate directly from browser to backend using NEXT_PUBLIC_API_URL,
+  // which bypasses any frontend server proxy DNS resolution issues.
   if (typeof window !== "undefined") {
-    return "";
+    return process.env.NEXT_PUBLIC_API_URL || "";
   }
   // Server-side: prefer explicit env vars
   const candidates = [
