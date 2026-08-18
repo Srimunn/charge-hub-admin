@@ -431,14 +431,14 @@ export const AddStationModal = ({
   if (customTrigger) return dialogComponent;
 
   return (
-    <Card className="shadow-lg border-0 h-full flex flex-col items-center justify-center p-6 bg-card text-center relative overflow-hidden group">
-      <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+    <Card className="relative overflow-hidden h-full flex flex-col items-center justify-center p-6 border-y-0 border-r-0 border-l-[6px] border-sky-500 bg-gradient-to-br from-sky-50/90 via-white to-blue-50/40 dark:from-sky-950/20 dark:via-slate-900 dark:to-slate-900 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 ease-in-out text-center group">
+      <div className="absolute top-0 right-0 w-32 h-32 bg-sky-500/10 rounded-full blur-2xl opacity-40 group-hover:opacity-70 transition-opacity duration-300 pointer-events-none" />
       <CardHeader className="p-0 mb-4 z-10">
-        <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300">
-          <Zap className="w-8 h-8 text-primary" />
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-sky-100 to-blue-100 dark:from-sky-950 dark:to-blue-950 border border-sky-200 dark:border-sky-800 flex items-center justify-center mx-auto mb-4 group-hover:scale-110 shadow-xs transition-transform duration-200">
+          <Zap className="w-8 h-8 text-sky-600 dark:text-sky-400" />
         </div>
-        <CardTitle className="text-xl">Add New Station</CardTitle>
-        <CardDescription className="mt-2">Register a new EV charging point to your network.</CardDescription>
+        <CardTitle className="text-xl font-bold text-slate-900 dark:text-slate-100">Add New Station</CardTitle>
+        <CardDescription className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">Register a new EV charging point to your network.</CardDescription>
       </CardHeader>
       <CardContent className="p-0 z-10 w-full mt-2">
         {dialogComponent}

@@ -32,48 +32,52 @@ export default function DashboardPage() {
     }
   };
 
-  const getStatusColor = (status: string) => {
+  const renderStatusPill = (status: string) => {
     const s = String(status || '').toLowerCase();
-    switch (s) {
-      case 'online':
-      case 'available':
-        return 'bg-success text-success-foreground';
-      case 'charging':
-        return 'bg-blue-600 text-white hover:bg-blue-600 font-semibold';
-      case 'faulted':
-      case 'fault':
-        return 'bg-destructive text-destructive-foreground animate-pulse';
-      case 'offline':
-        return 'bg-muted text-muted-foreground';
-      case 'maintenance':
-        return 'bg-warning text-warning-foreground';
-      default:
-        return 'bg-secondary text-secondary-foreground';
-    }
-  };
+    let badgeClass = 'bg-slate-100 text-slate-700 border-slate-300/60';
+    let dotClass = 'bg-slate-400';
+    let label = status;
 
-  const getStatusLabel = (status: string) => {
-    const s = String(status || '').toLowerCase();
     switch (s) {
       case 'online':
       case 'available':
-        return 'Available';
+        badgeClass = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300/60';
+        dotClass = 'bg-emerald-500';
+        label = 'Available';
+        break;
       case 'charging':
-        return 'Charging';
+        badgeClass = 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border-blue-300/60';
+        dotClass = 'bg-blue-500 animate-pulse';
+        label = 'Charging';
+        break;
       case 'faulted':
       case 'fault':
-        return 'Fault';
+        badgeClass = 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border-rose-300/60 animate-pulse';
+        dotClass = 'bg-rose-500';
+        label = 'Fault';
+        break;
       case 'offline':
-        return 'Offline';
+        badgeClass = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-300/60';
+        dotClass = 'bg-slate-400';
+        label = 'Offline';
+        break;
       case 'maintenance':
-        return 'Maintenance';
-      default:
-        return status;
+        badgeClass = 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-300/60';
+        dotClass = 'bg-amber-500';
+        label = 'Maintenance';
+        break;
     }
+
+    return (
+      <Badge className={`rounded-full px-3 py-1 text-xs font-bold border shadow-xs inline-flex items-center gap-1.5 ${badgeClass}`}>
+        <span className={`w-2 h-2 rounded-full ${dotClass}`} />
+        {label}
+      </Badge>
+    );
   };
 
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col min-h-screen bg-[#F5F8FC] dark:bg-slate-950/60">
       <DashboardHeader 
         title="Dashboard" 
         subtitle="Overview of your charging network"
@@ -104,11 +108,11 @@ export default function DashboardPage() {
 
           {/* Stations Table */}
           <div className="w-full lg:col-span-2">
-            <Card className="h-full shadow-lg border-0">
-              <CardHeader>
-                <CardTitle>Recent Stations</CardTitle>
+            <Card className="h-full shadow-sm hover:shadow-md transition-all duration-200 border-y-0 border-r-0 border-l-[6px] border-sky-500 bg-white dark:bg-slate-900 rounded-2xl overflow-hidden">
+              <CardHeader className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+                <CardTitle className="text-base font-bold text-slate-900 dark:text-slate-100">Recent Stations</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-4">
                 {stations.length === 0 ? (
                   <div className="text-center text-muted-foreground p-8">No stations found. Add one to see it here.</div>
                 ) : (
@@ -117,21 +121,21 @@ export default function DashboardPage() {
                     <div className="hidden md:block overflow-x-auto">
                       <Table>
                         <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-16"></TableHead>
-                            <TableHead>Station No.</TableHead>
-                            <TableHead>Station Name</TableHead>
-                            <TableHead>Location</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Power</TableHead>
+                          <TableRow className="border-b border-slate-200/80 dark:border-slate-800 hover:bg-transparent">
+                            <TableHead className="w-16 font-bold text-slate-700 dark:text-slate-300"></TableHead>
+                            <TableHead className="font-bold text-slate-700 dark:text-slate-300">Station No.</TableHead>
+                            <TableHead className="font-bold text-slate-700 dark:text-slate-300">Station Name</TableHead>
+                            <TableHead className="font-bold text-slate-700 dark:text-slate-300">Location</TableHead>
+                            <TableHead className="font-bold text-slate-700 dark:text-slate-300">Status</TableHead>
+                            <TableHead className="font-bold text-slate-700 dark:text-slate-300">Power</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {stations.slice(0, 5).map((station) => (
-                            <TableRow key={station._id}>
+                            <TableRow key={station._id} className="even:bg-sky-50/40 dark:even:bg-slate-800/30 hover:bg-sky-100/50 dark:hover:bg-slate-800/80 transition-colors duration-150 border-b border-slate-100 dark:border-slate-800/60">
                               <TableCell>
                                 {station.image ? (
-                                  <div className="w-10 h-10 rounded-lg overflow-hidden shadow-sm border border-border">
+                                  <div className="w-10 h-10 rounded-xl overflow-hidden shadow-sm border border-slate-200 dark:border-slate-700">
                                     <img
                                       src={getImageUrl(station.image)}
                                       alt={station.name}
@@ -139,29 +143,29 @@ export default function DashboardPage() {
                                     />
                                   </div>
                                 ) : (
-                                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center border border-dashed border-primary/20">
-                                    <Zap className="w-4 h-4 text-primary/60" />
+                                  <div className="w-10 h-10 rounded-xl bg-sky-100 dark:bg-sky-950 flex items-center justify-center border border-sky-200 dark:border-sky-800">
+                                    <Zap className="w-4 h-4 text-sky-600 dark:text-sky-400" />
                                   </div>
                                 )}
                               </TableCell>
                               <TableCell>
                                 {station.stationNumber ? (
-                                  <Badge variant="outline" className="font-mono font-bold">{station.stationNumber}</Badge>
+                                  <Badge variant="outline" className="font-mono font-bold border-sky-300 dark:border-sky-800 bg-sky-50/80 dark:bg-sky-950/40 text-sky-800 dark:text-sky-300">{station.stationNumber}</Badge>
                                 ) : (
                                   <span className="text-muted-foreground text-xs">N/A</span>
                                 )}
                               </TableCell>
-                              <TableCell className="font-medium">{station.name}</TableCell>
+                              <TableCell className="font-bold text-slate-800 dark:text-slate-200">{station.name}</TableCell>
                               <TableCell>
-                                <div className="flex items-center gap-1 text-muted-foreground">
-                                  <MapPin className="w-4 h-4" />
-                                  <span className="truncate max-w-[150px]">{station.location}</span>
+                                <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                                  <MapPin className="w-3.5 h-3.5 text-sky-600" />
+                                  <span className="truncate max-w-[150px] font-medium text-xs">{station.location}</span>
                                 </div>
                               </TableCell>
                               <TableCell>
-                                <Badge className={getStatusColor(station.status)}>{getStatusLabel(station.status)}</Badge>
+                                {renderStatusPill(station.status)}
                               </TableCell>
-                              <TableCell>{station.powerOutput || 0} kW</TableCell>
+                              <TableCell className="font-bold text-slate-700 dark:text-slate-300">{station.powerOutput || 0} kW</TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
@@ -171,10 +175,10 @@ export default function DashboardPage() {
                     {/* Mobile Cards View */}
                     <div className="grid grid-cols-1 gap-3 md:hidden">
                       {stations.slice(0, 5).map((station) => (
-                        <div key={station._id} className="p-4 bg-secondary/30 rounded-2xl border border-border/40 space-y-3">
+                        <div key={station._id} className="p-4 bg-gradient-to-br from-white to-sky-50/30 dark:from-slate-900 dark:to-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-3">
                           <div className="flex items-center gap-3">
                             {station.image ? (
-                              <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-border">
+                              <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700">
                                 <img
                                   src={getImageUrl(station.image)}
                                   alt={station.name}
@@ -182,23 +186,23 @@ export default function DashboardPage() {
                                 />
                               </div>
                             ) : (
-                              <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center border border-dashed border-primary/20 shrink-0">
-                                <Zap className="w-5 h-5 text-primary/60" />
+                              <div className="w-12 h-12 rounded-xl bg-sky-100 dark:bg-sky-950 flex items-center justify-center border border-sky-200 dark:border-sky-800 shrink-0">
+                                <Zap className="w-5 h-5 text-sky-600 dark:text-sky-400" />
                               </div>
                             )}
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between gap-2">
                                 <span className="font-bold text-sm text-foreground truncate">{station.name}</span>
-                                <Badge className={getStatusColor(station.status)}>{getStatusLabel(station.status)}</Badge>
+                                {renderStatusPill(station.status)}
                               </div>
                               <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
-                                <MapPin className="w-3.5 h-3.5" />
+                                <MapPin className="w-3.5 h-3.5 text-sky-600" />
                                 <span className="truncate">{station.location}</span>
                               </div>
                             </div>
                           </div>
                           
-                          <div className="flex items-center justify-between text-xs pt-2 border-t border-border/20">
+                          <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-200/60 dark:border-slate-800">
                             <div>
                               <span className="text-muted-foreground">Station No:</span>{" "}
                               <Badge variant="outline" className="font-mono font-bold text-[10px] ml-1">{station.stationNumber || 'N/A'}</Badge>

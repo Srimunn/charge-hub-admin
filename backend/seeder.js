@@ -1,11 +1,9 @@
+import "./config/env.js";
 import mongoose from "mongoose";
-import dotenv from "dotenv";
 import Station from "./models/Station.js";
 import Session from "./models/Session.js";
 import User from "./models/User.js";
 import Fault from "./models/Fault.js";
-
-dotenv.config({ path: "./.env" });
 
 const mockStations = [
   { name: 'Downtown Plaza Station', location: 'Downtown Plaza, Building A', status: 'online', slots: 4, totalEnergy: 15420, revenue: 4626 },

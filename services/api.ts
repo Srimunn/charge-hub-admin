@@ -4,10 +4,16 @@
 // - Server-side (SSR / NextAuth callbacks): use NEXT_PUBLIC_API_URL or BACKEND_API_URL
 //   so Next.js can reach the backend directly.
 const getApiUrl = (): string => {
-  // Client-side: communicate directly from browser to backend using NEXT_PUBLIC_API_URL,
-  // which bypasses any frontend server proxy DNS resolution issues.
   if (typeof window !== "undefined") {
-    return process.env.NEXT_PUBLIC_API_URL || "";
+    const envUrl = process.env.NEXT_PUBLIC_API_URL;
+    if (envUrl && envUrl !== "undefined" && envUrl !== "null" && envUrl.trim() !== "") {
+      return envUrl.replace(/\/$/, "");
+    }
+    // Dynamic domain fallback for production on Nimbuz
+    if (window.location.hostname.includes("nimbuz.tech")) {
+      return "https://charge-hub-backend-env-5q59hsdfos.ap-south-1a.lb.nimbuz.tech";
+    }
+    return "http://127.0.0.1:5000";
   }
   // Server-side: prefer explicit env vars
   const candidates = [
@@ -19,7 +25,10 @@ const getApiUrl = (): string => {
       return url.replace(/\/$/, "");
     }
   }
-  return process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+  if (process.env.NEXTAUTH_URL?.includes("nimbuz.tech")) {
+    return "https://charge-hub-backend-env-5q59hsdfos.ap-south-1a.lb.nimbuz.tech";
+  }
+  return "http://127.0.0.1:5000";
 };
 
 export const API_URL = getApiUrl();
@@ -80,12 +89,26 @@ const authHeaders = () => {
   return headers;
 };
 
+const parseErrorText = async (res: Response): Promise<string> => {
+  try {
+    const text = await res.text();
+    try {
+      const json = JSON.parse(text);
+      return json.error || json.message || text;
+    } catch {
+      return text || `Request failed with status ${res.status}`;
+    }
+  } catch {
+    return `Request failed with status ${res.status}`;
+  }
+};
+
 const handleAuthError = async (res: Response) => {
   if (res.status === 401) {
     clearToken();
     throw new Error("Authentication failed. Please log in again.");
   }
-  throw new Error(await res.text());
+  throw new Error(await parseErrorText(res));
 };
 
 // AUTH
@@ -95,7 +118,7 @@ export const registerUser = async (data: any) => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(await parseErrorText(res));
   return res.json();
 };
 
@@ -105,7 +128,7 @@ export const loginUser = async (data: any) => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(await parseErrorText(res));
   const json = await res.json();
   if (!json?.token) throw new Error('Authentication token not received');
   return json;
@@ -117,7 +140,7 @@ export const verifyOTP = async (data: any) => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(await parseErrorText(res));
   const json = await res.json();
   if (!json?.token) throw new Error('Authentication token not received');
   return json;

@@ -1,9 +1,9 @@
+import "./config/env.js";
 import crypto from "crypto";
 if (!global.crypto) {
   global.crypto = crypto;
 }
 
-import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -11,8 +11,6 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load .env from the backend directory (where the file actually lives)
-dotenv.config({ path: path.join(__dirname, ".env") });
 
 import express from "express";
 import mongoose from "mongoose";
@@ -161,21 +159,24 @@ mongoose.connection.on("error", (err) => {
 
 // Connect to MongoDB with auto-retry
 const connectDB = () => {
-  if (!mongoUri) {
+  const currentUri = process.env.MONGO_URI;
+  if (!currentUri) {
     console.error("❌ Error: MONGO_URI environment variable is not defined!");
+    console.error("👉 If running on Nimbuz or Cloud hosting, set MONGO_URI in your dashboard environment variables.");
+    console.error("👉 If running locally, create a backend/.env file containing MONGO_URI.");
     return;
   }
-  const isAtlas = mongoUri.startsWith("mongodb+srv://") || mongoUri.includes("mongodb.net");
-  mongoose.connect(mongoUri)
+  const isAtlas = currentUri.startsWith("mongodb+srv://") || currentUri.includes("mongodb.net");
+  mongoose.connect(currentUri)
     .then(() => {
       if (isAtlas) {
         console.log("✅ MongoDB Atlas Connected");
-        const { dbName, clusterName } = getClusterAndDb(mongoUri);
+        const { dbName, clusterName } = getClusterAndDb(currentUri);
         console.log(`📊 Database: ${dbName}`);
         console.log(`🌐 Cluster: ${clusterName}`);
       } else {
         console.log("✅ MongoDB Connected");
-        const { dbName } = getClusterAndDb(mongoUri);
+        const { dbName } = getClusterAndDb(currentUri);
         console.log(`📊 Database: ${dbName}`);
       }
 

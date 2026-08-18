@@ -41,9 +41,12 @@ export function KPICards() {
       value: `₹${totalRevenue.toFixed(2)}`,
       change: '+12.5% vs yesterday',
       icon: IndianRupee,
-      iconColor: 'text-accent',
-      bgColor: 'bg-accent/10',
-      ringColor: 'ring-accent/20',
+      iconColor: 'text-sky-600 dark:text-sky-400',
+      bgColor: 'bg-sky-500/15',
+      ringColor: 'ring-sky-500/30',
+      borderAccent: 'border-sky-500',
+      cardBg: 'bg-gradient-to-br from-sky-50/90 via-white to-blue-50/40 dark:from-sky-950/30 dark:via-slate-900 dark:to-slate-900',
+      gradientFill: 'bg-gradient-to-r from-sky-400 to-blue-600',
       size: 'large' as const,
       tooltip: (
         <div className="space-y-1 text-xs">
@@ -59,9 +62,12 @@ export function KPICards() {
       value: activeSessions,
       change: 'Live now',
       icon: Zap,
-      iconColor: 'text-success',
-      bgColor: 'bg-success/10',
-      ringColor: 'ring-success/20',
+      iconColor: 'text-emerald-600 dark:text-emerald-400',
+      bgColor: 'bg-emerald-500/15',
+      ringColor: 'ring-emerald-500/30',
+      borderAccent: 'border-emerald-500',
+      cardBg: 'bg-gradient-to-br from-emerald-50/90 via-white to-teal-50/40 dark:from-emerald-950/30 dark:via-slate-900 dark:to-slate-900',
+      gradientFill: 'bg-gradient-to-r from-emerald-400 to-teal-600',
       size: 'large' as const,
     },
     {
@@ -69,9 +75,12 @@ export function KPICards() {
       value: `${(totalEnergy / 1000).toFixed(1)} MWh`,
       change: 'All time total',
       icon: Plug,
-      iconColor: 'text-primary',
-      bgColor: 'bg-primary/10',
-      ringColor: 'ring-primary/20',
+      iconColor: 'text-blue-600 dark:text-blue-400',
+      bgColor: 'bg-blue-500/15',
+      ringColor: 'ring-blue-500/30',
+      borderAccent: 'border-blue-600',
+      cardBg: 'bg-gradient-to-br from-blue-50/90 via-white to-indigo-50/40 dark:from-blue-950/30 dark:via-slate-900 dark:to-slate-900',
+      gradientFill: 'bg-gradient-to-r from-blue-400 to-indigo-600',
       size: 'large' as const,
     },
     {
@@ -79,9 +88,11 @@ export function KPICards() {
       value: `${co2Saved.toFixed(1)} tons`,
       change: 'Environmental impact',
       icon: Leaf,
-      iconColor: 'text-success',
-      bgColor: 'bg-success/10',
-      ringColor: 'ring-success/20',
+      iconColor: 'text-emerald-600 dark:text-emerald-400',
+      bgColor: 'bg-emerald-500/15',
+      ringColor: 'ring-emerald-500/30',
+      borderAccent: 'border-emerald-500',
+      cardBg: 'bg-gradient-to-br from-emerald-50/70 via-white to-emerald-100/30 dark:from-emerald-950/20 dark:via-slate-900 dark:to-slate-900',
       size: 'medium' as const,
     },
     {
@@ -89,9 +100,11 @@ export function KPICards() {
       value: `${onlineStations}/${totalStations}`,
       change: 'Network status',
       icon: Radio,
-      iconColor: 'text-accent',
-      bgColor: 'bg-accent/10',
-      ringColor: 'ring-accent/20',
+      iconColor: 'text-sky-600 dark:text-sky-400',
+      bgColor: 'bg-sky-500/15',
+      ringColor: 'ring-sky-500/30',
+      borderAccent: 'border-sky-500',
+      cardBg: 'bg-gradient-to-br from-sky-50/70 via-white to-cyan-50/30 dark:from-sky-950/20 dark:via-slate-900 dark:to-slate-900',
       size: 'medium' as const,
     },
     {
@@ -99,9 +112,11 @@ export function KPICards() {
       value: activeFaults,
       change: 'Require attention',
       icon: AlertTriangle,
-      iconColor: activeFaults > 0 ? 'text-white' : 'text-destructive',
-      bgColor: activeFaults > 0 ? 'bg-destructive animate-pulse' : 'bg-destructive/10',
-      ringColor: activeFaults > 0 ? 'ring-destructive' : 'ring-destructive/20',
+      iconColor: activeFaults > 0 ? 'text-white' : 'text-rose-600 dark:text-rose-400',
+      bgColor: activeFaults > 0 ? 'bg-rose-500 animate-pulse' : 'bg-rose-500/15',
+      ringColor: activeFaults > 0 ? 'ring-rose-500' : 'ring-rose-500/30',
+      borderAccent: 'border-rose-500',
+      cardBg: activeFaults > 0 ? 'bg-gradient-to-br from-rose-100/90 via-rose-50 to-red-100/50 dark:from-rose-950/50 dark:via-slate-900 dark:to-slate-900' : 'bg-gradient-to-br from-rose-50/70 via-white to-red-50/30 dark:from-rose-950/20 dark:via-slate-900 dark:to-slate-900',
       size: 'medium' as const,
     },
     {
@@ -109,9 +124,11 @@ export function KPICards() {
       value: maintenanceStations,
       change: 'In progress',
       icon: Wrench,
-      iconColor: 'text-warning',
-      bgColor: 'bg-warning/10',
-      ringColor: 'ring-warning/20',
+      iconColor: 'text-amber-600 dark:text-amber-400',
+      bgColor: 'bg-amber-500/15',
+      ringColor: 'ring-amber-500/30',
+      borderAccent: 'border-amber-500',
+      cardBg: 'bg-gradient-to-br from-amber-50/70 via-white to-yellow-50/30 dark:from-amber-950/20 dark:via-slate-900 dark:to-slate-900',
       size: 'small' as const,
     },
     {
@@ -119,9 +136,11 @@ export function KPICards() {
       value: Math.max(0, idleStations),
       change: 'Available',
       icon: ParkingCircle,
-      iconColor: 'text-muted-foreground',
-      bgColor: 'bg-muted',
-      ringColor: 'ring-muted/30',
+      iconColor: 'text-slate-500 dark:text-slate-400',
+      bgColor: 'bg-slate-200/60 dark:bg-slate-800',
+      ringColor: 'ring-slate-300 dark:ring-slate-700',
+      borderAccent: 'border-slate-400',
+      cardBg: 'bg-gradient-to-br from-slate-50/80 via-white to-slate-100/40 dark:from-slate-900/40 dark:via-slate-900 dark:to-slate-900',
       size: 'small' as const,
     },
   ];
@@ -136,38 +155,38 @@ export function KPICards() {
         const CardUI = (
           <Card
             key={kpi.title}
-            className={`premium-card relative overflow-hidden w-full border-y-0 border-r-0 border-l-4 ${kpi.iconColor.replace('text-', 'border-')} animate-fade-in-up group ${spanClass}`}
-            style={{ animationDelay: `${index * 0.06}s` }}
+            className={`relative overflow-hidden w-full border-y-0 border-r-0 border-l-[6px] ${kpi.borderAccent} ${kpi.cardBg} rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 ease-in-out animate-fade-in-up group ${spanClass}`}
+            style={{ animationDelay: `${index * 0.05}s` }}
           >
             {/* Glow accent for large cards */}
             {kpi.size === 'large' && (
-              <div className={`absolute top-0 right-0 w-32 h-32 ${kpi.bgColor} rounded-full blur-3xl opacity-40 -translate-y-1/2 translate-x-1/2 group-hover:opacity-60 transition-opacity duration-500`} />
+              <div className={`absolute top-0 right-0 w-36 h-36 ${kpi.bgColor} rounded-full blur-3xl opacity-30 -translate-y-1/2 translate-x-1/2 group-hover:opacity-50 transition-opacity duration-500`} />
             )}
             <CardContent className="p-5">
               <div className="flex items-start justify-between relative z-10">
                 <div className="flex-1">
-                  <p className="font-semibold text-muted-foreground tracking-wider uppercase text-[11px] flex items-center gap-1.5">
-                    {kpi.title} {kpi.tooltip && <span className="px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[9px] cursor-pointer">Hover for breakdown</span>}
+                  <p className="font-semibold text-slate-500 dark:text-slate-400 tracking-wider uppercase text-[11px] flex items-center gap-1.5">
+                    {kpi.title} {kpi.tooltip && <span className="px-1.5 py-0.5 rounded-full bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 text-[9px] cursor-pointer font-medium">Hover for breakdown</span>}
                   </p>
-                  <h3 className={`font-bold mt-2 tracking-tight ${
+                  <h3 className={`font-bold mt-2 tracking-tight text-slate-900 dark:text-slate-100 ${
                     kpi.size === 'large' ? 'text-3xl' : 'text-2xl'
                   }`}>
                     {kpi.value}
                   </h3>
-                  <p className="text-muted-foreground mt-1.5 text-xs">
+                  <p className="text-slate-500 dark:text-slate-400 mt-1.5 text-xs font-medium">
                     {kpi.change}
                   </p>
-                  {/* Mini progress bar for large cards */}
+                  {/* Gradient progress bar for large cards */}
                   {kpi.size === 'large' && (
-                    <div className={`mt-4 h-2 w-full bg-secondary rounded-full overflow-hidden ${kpi.title === 'Active Sessions' && kpi.value > 0 ? 'ring-1 ring-success/20' : ''}`}>
+                    <div className={`mt-4 h-2.5 w-full bg-slate-200/70 dark:bg-slate-800 rounded-full overflow-hidden ${kpi.title === 'Active Sessions' && kpi.value > 0 ? 'ring-1 ring-emerald-400/30' : ''}`}>
                       <div
-                        className={`h-full rounded-full transition-all duration-1000 ${kpi.iconColor.replace('text-', 'bg-')} ${kpi.title === 'Active Sessions' && kpi.value > 0 ? 'animate-pulse' : 'animate-slide-in'}`}
+                        className={`h-full rounded-full transition-all duration-1000 ${kpi.gradientFill || 'bg-blue-600'} ${kpi.title === 'Active Sessions' && kpi.value > 0 ? 'animate-pulse' : 'animate-slide-in'}`}
                         style={{ width: `${Math.min(100, 40 + (typeof kpi.value === 'number' ? kpi.value * 10 : 20))}%`, animationDelay: `${0.2}s` }}
                       />
                     </div>
                   )}
                 </div>
-                <div className={`rounded-2xl ${kpi.bgColor} ring-1 ${kpi.ringColor} p-3.5 backdrop-blur-sm transition-transform duration-300 group-hover:scale-110`}>
+                <div className={`rounded-2xl ${kpi.bgColor} ring-1 ${kpi.ringColor} p-3.5 backdrop-blur-sm transition-transform duration-200 group-hover:scale-105 shadow-xs`}>
                   <kpi.icon className={`${kpi.iconColor} w-5 h-5`} />
                 </div>
               </div>

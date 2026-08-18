@@ -2,7 +2,7 @@ import { OAuth2Client } from 'google-auth-library';
 import User from '../models/User.js';
 import { generateToken } from './authController.js';
 
-const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const getClient = () => new OAuth2Client(process.env.GOOGLE_CLIENT_ID || "");
 
 export const googleAuth = async (req, res) => {
     try {
@@ -11,9 +11,10 @@ export const googleAuth = async (req, res) => {
             return res.status(400).json({ error: "Google ID Token is required" });
         }
 
+        const client = getClient();
         const ticket = await client.verifyIdToken({
             idToken,
-            audience: process.env.GOOGLE_CLIENT_ID,
+            audience: process.env.GOOGLE_CLIENT_ID || "",
         });
         const payload = ticket.getPayload();
         const { sub: googleId, email, name } = payload;

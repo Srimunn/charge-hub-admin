@@ -27,8 +27,10 @@ const getBackendUrl = (): string => {
       return url.replace(/\/$/, "");
     }
   }
-  // Final fallback for local development
-  return process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+  if (process.env.NEXTAUTH_URL?.includes("nimbuz.tech")) {
+    return "https://charge-hub-backend-env-5q59hsdfos.ap-south-1a.lb.nimbuz.tech";
+  }
+  return "http://127.0.0.1:5000";
 };
 
 const authOptions: NextAuthOptions = {
@@ -112,14 +114,26 @@ const authOptions: NextAuthOptions = {
     signIn: "/login",
     error: "/login",
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: process.env.NEXTAUTH_SECRET || process.env.JWT_SECRET || "ba7561c9dc7e415382906432f3852f44evcharge",
   // In NextAuth v4, production URL is controlled via NEXTAUTH_URL env var.
   // Ensure NEXTAUTH_URL is set to your deployed frontend URL in production.
   // useSecureCookies is automatically set to true when NEXTAUTH_URL starts with https://
   debug: process.env.NODE_ENV === "development",
 };
 
-import { NextRequest } from "next/server";
+const NEXTAUTH_ACTIONS = new Set([
+  "signin",
+  "callback",
+  "session",
+  "csrf",
+  "providers",
+  "signout",
+  "error",
+  "verify-request",
+  "_log"
+]);
+
+import { NextRequest, NextResponse } from "next/server";
 
 const handler = async (req: NextRequest, ctx: any) => {
   // Dynamically resolve NEXTAUTH_URL based on incoming request headers to prevent localhost redirect
@@ -136,8 +150,46 @@ const handler = async (req: NextRequest, ctx: any) => {
     }
   }
 
+  // Check if this request is a backend Express auth route (e.g. /api/auth/login, /api/auth/register)
+  const resolvedParams = ctx?.params ? await Promise.resolve(ctx.params) : null;
+  const nextauthParams: string[] = resolvedParams?.nextauth || [];
+  const action = nextauthParams[0];
+
+  if (action && !NEXTAUTH_ACTIONS.has(action)) {
+    const backendUrl = getBackendUrl();
+    const targetUrl = `${backendUrl}/api/auth/${nextauthParams.join("/")}`;
+    console.log(`[Auth Proxy] Proxying non-NextAuth route '${action}' to backend: ${targetUrl}`);
+
+    try {
+      const forwardHeaders = new Headers(req.headers);
+      forwardHeaders.delete("host");
+      
+      const reqBody = req.method !== "GET" && req.method !== "HEAD" ? await req.text() : undefined;
+
+      const backendRes = await fetch(targetUrl, {
+        method: req.method,
+        headers: forwardHeaders,
+        body: reqBody,
+      });
+
+      const responseHeaders = new Headers(backendRes.headers);
+      return new NextResponse(backendRes.body, {
+        status: backendRes.status,
+        statusText: backendRes.statusText,
+        headers: responseHeaders,
+      });
+    } catch (proxyError: any) {
+      console.error(`[Auth Proxy] Error proxying /api/auth/${action}:`, proxyError?.message || proxyError);
+      return NextResponse.json(
+        { error: `Backend connection error: ${proxyError?.message || "Unable to reach Express backend"}` },
+        { status: 502 }
+      );
+    }
+  }
+
   // Under Next.js App Router, NextAuth v4 handles (req, ctx, options) signature dynamically.
   return await NextAuth(req, ctx, authOptions);
 };
 
 export { handler as GET, handler as POST };
+
