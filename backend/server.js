@@ -182,7 +182,8 @@ const runMaintenance = async () => {
 };
 
 const port = Number(process.env.PORT || 5000);
-server.listen(port, "0.0.0.0", () => {
+// "::" = dual-stack (IPv6 + IPv4). Railway's private network (*.railway.internal) is IPv6-only.
+server.listen(port, "::", () => {
   console.log(`🌐 Server listening on port ${port} (TZ=${process.env.TZ})`);
 });
 
