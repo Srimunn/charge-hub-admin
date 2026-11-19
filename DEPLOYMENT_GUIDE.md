@@ -32,7 +32,10 @@ railway config apply             # apply them
 On Windows Git Bash, if the SDK complains about the CLI version, run the commands from PowerShell, or prefix them
 with `_=<path to railway.exe>`.
 
-**After merging the PR:** in `.railway/railway.ts` change `BRANCH` to `"main"`, then run `railway config apply`.
+Both app services deploy from the `main` branch (`BRANCH` in `.railway/railway.ts`).
+If a push to `main` does not start a deploy, give the Railway GitHub app access to this repository
+(GitHub → Settings → Applications → Railway → Configure), or deploy manually with
+`railway redeploy --service <name> --from-source`.
 
 ## 2. Environment variables
 

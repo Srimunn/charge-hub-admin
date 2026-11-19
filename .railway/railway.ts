@@ -2,8 +2,8 @@ import { defineRailway, github, postgres, project, service, volume } from "railw
 
 // Railway project "charge-hub-operator": operator dashboard + API (shared with the mobile app) + PostgreSQL.
 // Variables are NOT managed here (secrets are set in the Railway dashboard / CLI). See DEPLOYMENT_GUIDE.md.
-// Deploy branch: switch to "main" after the migration PR is merged.
-const BRANCH = "deploy/railway-migration";
+// Deploy branch.
+const BRANCH = "main";
 const REGION = "asia-southeast1-eqsg3a";
 
 export default defineRailway(() => {
