@@ -1,7 +1,7 @@
 import { OAuth2Client } from "google-auth-library";
 import { eq, or, and, ne } from "drizzle-orm";
 import { db, schema, newId } from "../db/index.js";
-import { generateToken, hashPin, isValidPin, normalizeEmail } from "./authController.js";
+import { generateToken, hashPin, isAdminEmail, isValidPin, normalizeEmail } from "./authController.js";
 
 const client = () => new OAuth2Client(process.env.GOOGLE_CLIENT_ID || "");
 
@@ -24,15 +24,21 @@ export const googleAuth = async (req, res) => {
       .where(or(eq(schema.users.googleId, googleId), eq(schema.users.email, email)))
       .limit(1);
 
+    // Google has verified this email, so ADMIN_EMAILS can be trusted to grant admin here.
+    const adminEmail = isAdminEmail(email);
     if (!user) {
       [user] = await db
         .insert(schema.users)
-        .values({ id: newId(), name: payload?.name || email.split("@")[0], email, googleId, authProvider: "google", role: "customer" })
+        .values({ id: newId(), name: payload?.name || email.split("@")[0], email, googleId, authProvider: "google", role: adminEmail ? "admin" : "customer" })
         .returning();
-    } else if (!user.googleId) {
+    } else if (!user.googleId || (adminEmail && user.role !== "admin")) {
       [user] = await db
         .update(schema.users)
-        .set({ googleId, authProvider: "google", updatedAt: new Date() })
+        .set({
+          ...(!user.googleId ? { googleId, authProvider: "google" } : {}),
+          ...(adminEmail ? { role: "admin" } : {}),
+          updatedAt: new Date(),
+        })
         .where(eq(schema.users.id, user.id))
         .returning();
     }

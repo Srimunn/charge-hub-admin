@@ -49,7 +49,7 @@ const authOptions: NextAuthOptions = {
           const idToken = account.id_token;
           if (!idToken) {
             console.error("[NextAuth] No ID Token found in Google account");
-            return false;
+            return "/login?error=GoogleFailed";
           }
 
           const backendUrl = getBackendUrl();
@@ -65,7 +65,7 @@ const authOptions: NextAuthOptions = {
           if (!res.ok) {
             const errText = await res.text();
             console.error("[NextAuth] Backend google verification failed:", res.status, errText);
-            return false;
+            return "/login?error=GoogleFailed";
           }
 
           const data = await res.json();
@@ -90,7 +90,7 @@ const authOptions: NextAuthOptions = {
           return true;
         } catch (error) {
           console.error("[NextAuth] Error verifying Google token with backend:", error);
-          return false;
+          return "/login?error=GoogleFailed";
         }
       }
       return true;

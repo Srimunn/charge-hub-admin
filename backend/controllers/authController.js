@@ -14,6 +14,9 @@ export const generateToken = (id) => {
 export const hashPin = async (pin) => bcrypt.hash(String(pin), 10);
 export const isValidPin = (pin) => typeof pin === "string" && /^\d{6}$/.test(pin);
 export const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
+/** Emails listed in ADMIN_EMAILS (comma-separated) are platform admins. */
+export const isAdminEmail = (email) =>
+  (process.env.ADMIN_EMAILS || "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean).includes(normalizeEmail(email));
 const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
 const otpEmailHtml = (heading, intro, code, color = "#3b82f6") => `
