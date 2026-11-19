@@ -78,12 +78,12 @@ export function CO2SavingsChart() {
         <div className="flex flex-wrap items-center justify-center gap-3 mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-800 w-full text-xs text-slate-600 dark:text-slate-400">
           <div className="flex items-center gap-1.5 font-medium">
             <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
-            <span>+14.2% vs last month</span>
+            <span>Estimated at 0.4 kg CO₂ per kWh</span>
           </div>
           <div className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700 hidden sm:block" />
           <div className="flex items-center gap-1.5 font-medium">
             <ShieldCheck className="w-3.5 h-3.5 text-sky-600" />
-            <span>100 Ton Annual Target</span>
+            <span>Ring shows progress to 100 t</span>
           </div>
         </div>
       </CardContent>

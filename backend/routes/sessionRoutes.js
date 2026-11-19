@@ -1,19 +1,12 @@
 import express from "express";
 import { startSession, stopSession, getSessions, getLiveSessions } from "../controllers/sessionController.js";
-import { protect } from "../middleware/authMiddleware.js";
+import { protect, operatorOnly } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// GET all sessions for the user
-router.get("/", protect, getSessions);
-
-// GET live active sessions
-router.get("/live", protect, getLiveSessions);
-
-// START a charging session
-router.post("/start", protect, startSession);
-
-// STOP a charging session
+router.get("/", protect, getSessions); // customer: own sessions; operator: sessions at their stations
+router.get("/live", protect, operatorOnly, getLiveSessions);
+router.post("/start", protect, startSession); // customer needs a paid order; operator = test start
 router.post("/stop/:id", protect, stopSession);
 
 export default router;

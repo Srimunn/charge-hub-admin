@@ -1,82 +1,62 @@
-# EV Charging Station Admin Dashboard
+# EV Charge Operator Dashboard
 
-An advanced EV Charging Platform Operator System featuring real-time charging session trackers, station and connector health metrics, live telemetry, reports, and a controlled fault simulation system.
+This repo is the operator portal for the EV Charge network. It shares one backend with the customer mobile app.
 
----
+**Who uses it**
+- **Admins** manage everything: stations, owners, pricing and GST, customers, and refunds.
+- **Station owners** see only their own stations, live sessions, payments, faults and customers.
 
-## 📋 System Requirements
+**What it includes**
+- **Frontend:** Next.js 14 (App Router), signed in with a PIN or Google (NextAuth).
+- **Backend:** Express 5 with PostgreSQL (Drizzle ORM), Socket.io for live updates, and an OCPP 1.6J central system for the chargers.
+- **Payments:** Razorpay prepaid charging with 18% GST. Charging stops automatically when the prepaid amount runs out, and the unused balance is refunded.
 
-To run this application locally, you will need:
-1. **Node.js** (v18 or higher recommended)
-2. **MongoDB** (Local Community Server OR a MongoDB Atlas cloud database URI)
+Production runs on Railway at `operator.magnertia.in` (dashboard) and `operator-api.magnertia.in` (API).
+See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md).
 
----
+## Requirements
 
-## 🚀 Quick Start Guide
+- Node.js 20+
+- PostgreSQL 14+ (local install, Docker `postgres:16`, or any hosted Postgres URL)
 
-Follow these steps to set up and run the application on your laptop:
+## Run locally
 
-### 1. Clone the Repository
-```bash
+```sh
 git clone https://github.com/Srimunn/charge-hub-admin.git
 cd charge-hub-admin
+npm install && (cd backend && npm install)
+
+cp backend/.env.example backend/.env
+#   DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/charge_hub
+#   JWT_SECRET=<any long random string>
+#   PAYMENTS_DEMO_MODE=true and OTP_DEBUG=true for local testing only
+cp .env.example .env.local
+#   NEXT_PUBLIC_API_URL=http://localhost:5000  BACKEND_API_URL=http://localhost:5000
+#   NEXTAUTH_URL=http://localhost:3000  NEXTAUTH_SECRET=<any long random string>
+
+npm run dev        # starts the backend (5000) and Next.js (3000); DB migrations run automatically
+node backend/scripts/create-admin.js --email you@example.com --name "You"   # prints a one-time PIN
 ```
 
-### 2. Configure Environment Variables
-You need to create a `.env` file inside the `backend` directory to store configuration keys.
+Sign in at http://localhost:3000 with that email and PIN.
 
-Create a file at `backend/.env` and add the following content:
-```env
-# JWT & Security Configuration
-JWT_SECRET=ba7561c9dc7e415382906432f3852f44
-TOKEN_EXPIRY=7d
+## Try the charging flow without hardware
 
-# MongoDB Connection (use your local URI or Atlas connection string)
-MONGO_URI=mongodb://127.0.0.1:27017/ev_chargings
+1. **Stations → Add station.** As an admin, switch on **Demo station (simulated charger)**. A built-in simulator connects to it over OCPP.
+2. **Live Sessions → Start test session.** Choose the station to send a remote start as an operator.
+3. On the session card, use **Simulate fault** (over-temperature, over-voltage, E-stop and others). The session stops and the station shows **Fault** everywhere in real time.
+4. Go to **Faults & Alerts → Resolve** to bring the station back online.
 
-# Razorpay Test Mode Keys (for test transaction processing)
-RAZORPAY_KEY_ID=rzp_test_SrF5xp9EfzQMlu
-RAZORPAY_KEY_SECRET=xByWuuQVHAsOM064HPs8anAA
-RAZORPAY_WEBHOOK_SECRET=your_webhook_secret_here
-```
+Customer charging (pay → charge → automatic stop → refund) runs from the mobile app. With `PAYMENTS_DEMO_MODE=true` you
+can exercise it through the API with `pay_mock_*` payment IDs.
 
-### 3. Install Dependencies
-Run this command in the project root directory to install all frontend and backend packages:
-```bash
-npm install
-```
+## Project layout
 
-### 4. Seed the Database (Optional but Recommended)
-To populate the database with initial stations, users, and faults:
-```bash
-node backend/seeder.js
-```
-
-### 5. Run the Application
-You will need to start both the **Backend API server** and the **Frontend dev server**:
-
-#### Start the Backend API Server
-In your terminal, run:
-```bash
-npm run backend
-```
-*The backend API server will start on [http://localhost:5000](http://localhost:5000).*
-
-#### Start the Frontend Web App
-Open a new terminal window/tab, navigate to the root directory, and run:
-```bash
-npm run dev
-```
-*The Next.js frontend admin panel will start on [http://localhost:3000](http://localhost:3000).*
-
----
-
-## 🛠️ Testing the Fault Simulation System
-
-Once both servers are running:
-1. Log in to the Admin Panel and navigate to **Live Sessions**.
-2. Click **Simulate Start Session** to spin up an active charging station.
-3. On the active station card, click the **Simulate Fault** button.
-4. Choose any of the test faults (e.g., *Over Temp*, *Over Voltage*, *Over Current*, or *E-Stop*).
-5. Watch the charging session immediately stop, and verify that the station status changes to **Faulted** across the dashboard, Live Sessions, and Station Details screens in real time.
-6. To restore the station, navigate to the **Faults & Alerts** page and click **Resolve**.
+| Path | What |
+| :--- | :--- |
+| `app/`, `components/`, `services/api.ts` | Next.js dashboard |
+| `backend/server.js` | Express app, Socket.io, maintenance jobs |
+| `backend/db/schema.js`, `backend/drizzle/` | Database schema and SQL migrations |
+| `backend/services/ocppCentralSystem.js` | OCPP 1.6J central system (`/ocpp/<stationNumber>`) |
+| `backend/services/chargingService.js`, `pricing.js` | Billing, GST, prepaid limit, refunds |
+| `backend/scripts/` | `create-admin.js`, `migrate-from-mongo.js` (one-time Atlas → Postgres) |

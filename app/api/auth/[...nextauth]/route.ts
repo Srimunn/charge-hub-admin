@@ -27,9 +27,6 @@ const getBackendUrl = (): string => {
       return url.replace(/\/$/, "");
     }
   }
-  if (process.env.NEXTAUTH_URL?.includes("nimbuz.tech")) {
-    return "https://charge-hub-backend-env-5q59hsdfos.ap-south-1a.lb.nimbuz.tech";
-  }
   return "http://127.0.0.1:5000";
 };
 
@@ -52,11 +49,10 @@ const authOptions: NextAuthOptions = {
           const idToken = account.id_token;
           if (!idToken) {
             console.error("[NextAuth] No ID Token found in Google account");
-            return false;
+            return "/login?error=GoogleFailed";
           }
 
           const backendUrl = getBackendUrl();
-          console.log(`[NextAuth] Forwarding Google token to backend: ${backendUrl}/api/auth/google`);
 
           const res = await fetch(`${backendUrl}/api/auth/google`, {
             method: "POST",
@@ -69,11 +65,14 @@ const authOptions: NextAuthOptions = {
           if (!res.ok) {
             const errText = await res.text();
             console.error("[NextAuth] Backend google verification failed:", res.status, errText);
-            return false;
+            return "/login?error=GoogleFailed";
           }
 
           const data = await res.json();
-          console.log(`[NextAuth] Google auth successful for user: ${data.email}`);
+          // The operator portal is only for station owners and admins.
+          if (data.role !== "admin" && data.role !== "owner") {
+            return "/login?error=AccessDenied";
+          }
 
           // Store backend token and user info inside the next-auth user object
           (user as any).backendToken = data.token;
@@ -82,6 +81,7 @@ const authOptions: NextAuthOptions = {
             name: data.name,
             email: data.email,
             mobile: data.mobile,
+            role: data.role,
             hasPin: data.hasPin,
             hasMobile: data.hasMobile,
             hasProfileComplete: data.hasProfileComplete,
@@ -90,7 +90,7 @@ const authOptions: NextAuthOptions = {
           return true;
         } catch (error) {
           console.error("[NextAuth] Error verifying Google token with backend:", error);
-          return false;
+          return "/login?error=GoogleFailed";
         }
       }
       return true;
@@ -114,7 +114,8 @@ const authOptions: NextAuthOptions = {
     signIn: "/login",
     error: "/login",
   },
-  secret: process.env.NEXTAUTH_SECRET || process.env.JWT_SECRET || "ba7561c9dc7e415382906432f3852f44evcharge",
+  // Set NEXTAUTH_SECRET in production (a long random string).
+  secret: process.env.NEXTAUTH_SECRET || process.env.JWT_SECRET,
   // In NextAuth v4, production URL is controlled via NEXTAUTH_URL env var.
   // Ensure NEXTAUTH_URL is set to your deployed frontend URL in production.
   // useSecureCookies is automatically set to true when NEXTAUTH_URL starts with https://
@@ -158,7 +159,6 @@ const handler = async (req: NextRequest, ctx: any) => {
   if (action && !NEXTAUTH_ACTIONS.has(action)) {
     const backendUrl = getBackendUrl();
     const targetUrl = `${backendUrl}/api/auth/${nextauthParams.join("/")}`;
-    console.log(`[Auth Proxy] Proxying non-NextAuth route '${action}' to backend: ${targetUrl}`);
 
     try {
       const forwardHeaders = new Headers(req.headers);

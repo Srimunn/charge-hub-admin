@@ -1,122 +1,150 @@
 import { WebSocketServer } from "ws";
 import { randomUUID } from "crypto";
-import Station from "../models/Station.js";
-import Telemetry from "../models/Telemetry.js";
-import Fault from "../models/Fault.js";
-import Transaction from "../models/Transaction.js";
+import bcrypt from "bcryptjs";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { db, schema, newId, round2, toApi } from "../db/index.js";
+import { notify } from "./notificationService.js";
+import { emitToOperators, emitToOperatorsAndUser, emitPublicStation, emitStationRoom, getIo } from "./realtime.js";
+import { stationRates } from "./pricing.js";
+import {
+  findStationByNumber,
+  updateStation,
+  setConnectorStatus,
+  findPaidPayment,
+  activeSessionFor,
+  finalizeSession,
+  sessionBill,
+  userIdFromTag,
+} from "./chargingService.js";
 
 const toNumber = (value) => {
-  if (value === null || value === undefined) return undefined;
+  if (value === null || value === undefined || value === "") return undefined;
   const n = Number(value);
   return Number.isFinite(n) ? n : undefined;
-};
-
-const calculateCurrentRate = (station, at = new Date()) => {
-  let pricePerKwh = station?.basePricePerKwh || 0;
-  if (station?.dynamicPricing?.length) {
-    const hh = String(at.getHours()).padStart(2, "0");
-    const mm = String(at.getMinutes()).padStart(2, "0");
-    const t = `${hh}:${mm}`;
-    for (const rule of station.dynamicPricing) {
-      if (rule?.startTime && rule?.endTime && t >= rule.startTime && t <= rule.endTime) {
-        pricePerKwh = rule.pricePerKwh;
-        break;
-      }
-    }
-  }
-  const convenienceFee = station?.convenienceFee || 0;
-  const tax = station?.tax || 0;
-  return { pricePerKwh, convenienceFee, tax };
 };
 
 const mapOcppErrorToFaultType = (errorCode) => {
   const key = String(errorCode || "").toLowerCase();
   if (!key || key === "noerror") return null;
-  if (key.includes("overtemperature")) return "overheat";
+  if (key.includes("overtemperature") || key.includes("highTemperature".toLowerCase())) return "overheat";
   if (key.includes("overvoltage")) return "overvoltage";
   if (key.includes("emergencystop")) return "emergency stop";
   if (key.includes("communicationerror") || key.includes("internalerror")) return "communication failure";
-  if (key.includes("power") || key.includes("powermeterfailure")) return "power fault";
-  if (key.includes("connectorlockfailure") || key.includes("groundfailure")) return "power fault";
+  if (key.includes("connectorlockfailure")) return "connector failure";
   return "power fault";
 };
+
+const allowUnknownStations = () => process.env.OCPP_ALLOW_UNKNOWN_STATIONS === "true";
+const acceptAnyIdTag = () => process.env.OCPP_ACCEPT_ANY_IDTAG === "true";
+const OPERATOR_START_TTL_MS = 2 * 60 * 1000;
+
+const publicStationPayload = (station, extra = {}) => ({
+  stationId: station.id,
+  stationNumber: station.stationNumber,
+  status: station.status,
+  ...extra,
+});
 
 export default class OcppCentralSystem {
   constructor({ server, io, pathPrefix = "/ocpp" }) {
     this.server = server;
     this.io = io;
     this.pathPrefix = pathPrefix;
-    this.wss = new WebSocketServer({ noServer: true });
+    this.wss = new WebSocketServer({
+      noServer: true,
+      handleProtocols: (protocols) => (protocols.has("ocpp1.6") ? "ocpp1.6" : false),
+    });
     this.connections = new Map(); // chargePointId -> ws
     this.pending = new Map(); // uniqueId -> { resolve, reject, timeout }
     this.lastMessageAt = new Map(); // chargePointId -> epoch ms
-    this.offlineThresholdMs = 60000;
+    this.operatorStarts = new Map(); // chargePointId -> { idTag, expiresAt }
+    this.offlineThresholdMs = 90000;
   }
 
   attach() {
     setInterval(() => {
       const now = Date.now();
-      for (const [chargePointId, lastAt] of this.lastMessageAt.entries()) {
+      for (const [cp, lastAt] of this.lastMessageAt.entries()) {
         if (now - lastAt <= this.offlineThresholdMs) continue;
-        const ws = this.connections.get(chargePointId);
-        if (ws && ws.readyState === ws.OPEN) {
-          try {
-            ws.close();
-          } catch {}
-        } else {
-          this.lastMessageAt.delete(chargePointId);
-        }
+        const ws = this.connections.get(cp);
+        if (ws && ws.readyState === ws.OPEN) ws.terminate();
+        else this.lastMessageAt.delete(cp);
       }
-    }, 10000);
+    }, 15000).unref();
 
     this.server.on("upgrade", (request, socket, head) => {
+      let url;
       try {
-        const url = new URL(request.url, "http://localhost");
-        if (!url.pathname.startsWith(`${this.pathPrefix}/`)) return;
-
-        const protocols = request.headers["sec-websocket-protocol"];
-        if (protocols && !String(protocols).toLowerCase().includes("ocpp1.6")) {
-          socket.destroy();
-          return;
-        }
-
-        this.wss.handleUpgrade(request, socket, head, (ws) => {
-          this.wss.emit("connection", ws, request);
-        });
+        url = new URL(request.url, "http://localhost");
       } catch {
         socket.destroy();
-      }
-    });
-
-    this.wss.on("connection", (ws, request) => {
-      const url = new URL(request.url, "http://localhost");
-      const chargePointId = decodeURIComponent(url.pathname.slice(`${this.pathPrefix}/`.length));
-
-      if (!chargePointId) {
-        ws.close();
         return;
       }
-
-      this.connections.set(chargePointId, ws);
-      this.lastMessageAt.set(chargePointId, Date.now());
-      this.emitOcppStatus(chargePointId, true);
-      this.markStationOnline(chargePointId).catch(() => {});
-
-      ws.on("message", (data) => {
-        this.lastMessageAt.set(chargePointId, Date.now());
-        const raw = data?.toString?.() ?? "";
-        this.onMessage(chargePointId, ws, raw).catch(() => {});
-      });
-
-      ws.on("close", () => {
-        this.connections.delete(chargePointId);
-        this.lastMessageAt.delete(chargePointId);
-        this.emitOcppStatus(chargePointId, false);
-        this.markStationOffline(chargePointId).catch(() => {});
-      });
-
-      ws.on("error", () => {});
+      if (!url.pathname.startsWith(`${this.pathPrefix}/`)) return; // Socket.io and others
+      this.authorizeUpgrade(request, url)
+        .then((chargePointId) => {
+          if (!chargePointId) {
+            socket.write("HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"OCPP\"\r\n\r\n");
+            socket.destroy();
+            return;
+          }
+          this.wss.handleUpgrade(request, socket, head, (ws) => this.onConnection(ws, chargePointId));
+        })
+        .catch(() => socket.destroy());
     });
+  }
+
+  /** Only stations registered in the dashboard may connect; optional Basic Auth per station. */
+  async authorizeUpgrade(request, url) {
+    const chargePointId = decodeURIComponent(url.pathname.slice(`${this.pathPrefix}/`.length)).trim();
+    if (!chargePointId || chargePointId.includes("/")) return null;
+    const station = await findStationByNumber(chargePointId);
+    if (!station) {
+      if (allowUnknownStations()) return chargePointId;
+      console.warn(`⚠️ [OCPP] Rejected unknown charge point "${chargePointId}"`);
+      return null;
+    }
+    if (station.ocppPasswordHash) {
+      const header = request.headers.authorization || "";
+      if (!header.startsWith("Basic ")) return null;
+      const decoded = Buffer.from(header.slice(6), "base64").toString("utf8");
+      const sep = decoded.indexOf(":");
+      const user = decoded.slice(0, sep);
+      const pass = decoded.slice(sep + 1);
+      if (user !== chargePointId || !(await bcrypt.compare(pass, station.ocppPasswordHash))) {
+        console.warn(`⚠️ [OCPP] Bad credentials for charge point "${chargePointId}"`);
+        return null;
+      }
+    }
+    return chargePointId;
+  }
+
+  onConnection(ws, chargePointId) {
+    const previous = this.connections.get(chargePointId);
+    if (previous && previous !== ws) {
+      try {
+        previous.terminate();
+      } catch {}
+    }
+    this.connections.set(chargePointId, ws);
+    this.lastMessageAt.set(chargePointId, Date.now());
+    this.emitOcppStatus(chargePointId, true);
+    this.markStationOnline(chargePointId).catch((e) => console.error("[OCPP] online:", e.message));
+
+    ws.on("message", (data) => {
+      this.lastMessageAt.set(chargePointId, Date.now());
+      this.onMessage(chargePointId, ws, data?.toString?.() ?? "").catch((e) =>
+        console.error(`[OCPP] ${chargePointId} message error:`, e.message)
+      );
+    });
+    ws.on("close", () => {
+      if (this.connections.get(chargePointId) !== ws) return; // replaced by a newer connection
+      this.connections.delete(chargePointId);
+      this.lastMessageAt.delete(chargePointId);
+      this.emitOcppStatus(chargePointId, false);
+      this.markStationOffline(chargePointId).catch((e) => console.error("[OCPP] offline:", e.message));
+    });
+    ws.on("error", () => {});
   }
 
   isConnected(chargePointId) {
@@ -124,18 +152,20 @@ export default class OcppCentralSystem {
     return Boolean(ws && ws.readyState === ws.OPEN);
   }
 
+  /** Remember that an operator requested a remote start, so StartTransaction for it is accepted. */
+  allowOperatorStart(chargePointId, idTag) {
+    this.operatorStarts.set(chargePointId, { idTag, expiresAt: Date.now() + OPERATOR_START_TTL_MS });
+  }
+
   sendCall(chargePointId, action, payload) {
     const ws = this.connections.get(chargePointId);
     if (!ws || ws.readyState !== ws.OPEN) {
       const err = new Error("Charge point not connected");
       err.code = "CP_NOT_CONNECTED";
-      throw err;
+      return Promise.reject(err);
     }
-
     const uniqueId = randomUUID();
-    const message = JSON.stringify([2, uniqueId, action, payload ?? {}]);
-    ws.send(message);
-
+    ws.send(JSON.stringify([2, uniqueId, action, payload ?? {}]));
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(uniqueId);
@@ -153,40 +183,31 @@ export default class OcppCentralSystem {
       return;
     }
     if (!Array.isArray(msg) || msg.length < 3) return;
+    const [messageTypeId, uniqueId] = msg;
 
-    const messageTypeId = msg[0];
-    const uniqueId = msg[1];
-
-    if (messageTypeId === 3) {
+    if (messageTypeId === 3 || messageTypeId === 4) {
       const pending = this.pending.get(uniqueId);
       if (!pending) return;
       clearTimeout(pending.timeout);
       this.pending.delete(uniqueId);
-      pending.resolve(msg[2]);
+      if (messageTypeId === 3) pending.resolve(msg[2]);
+      else {
+        const err = new Error(msg[3] || "OCPP error");
+        err.ocpp = { errorCode: msg[2], errorDescription: msg[3], errorDetails: msg[4] };
+        pending.reject(err);
+      }
       return;
     }
-
-    if (messageTypeId === 4) {
-      const pending = this.pending.get(uniqueId);
-      if (!pending) return;
-      clearTimeout(pending.timeout);
-      this.pending.delete(uniqueId);
-      const err = new Error(msg[3] || "OCPP error");
-      err.ocpp = { errorCode: msg[2], errorDescription: msg[3], errorDetails: msg[4] };
-      pending.reject(err);
-      return;
-    }
-
     if (messageTypeId !== 2) return;
 
     const action = msg[2];
     const payload = msg[3] || {};
-
     try {
       const result = await this.handleCall(chargePointId, action, payload);
       ws.send(JSON.stringify([3, uniqueId, result ?? {}]));
     } catch (e) {
-      ws.send(JSON.stringify([4, uniqueId, "InternalError", e?.message || "Internal Error", {}]));
+      console.error(`[OCPP] ${chargePointId} ${action} failed:`, e.message);
+      ws.send(JSON.stringify([4, uniqueId, "InternalError", "Internal Error", {}]));
     }
   }
 
@@ -205,537 +226,389 @@ export default class OcppCentralSystem {
         await this.onMeterValues(chargePointId, payload);
         return {};
       case "Authorize":
-        return { idTagInfo: { status: "Accepted" } };
+        return { idTagInfo: { status: await this.authorizeIdTag(chargePointId, payload?.idTag) } };
       case "StartTransaction":
         return await this.onStartTransaction(chargePointId, payload);
       case "StopTransaction":
         return await this.onStopTransaction(chargePointId, payload);
+      case "DataTransfer":
+        return { status: "UnknownVendorId" };
       default:
         return {};
     }
   }
 
-  async findStation(chargePointId) {
-    return Station.findOne({ stationNumber: chargePointId });
+  async authorizeIdTag(chargePointId, idTag) {
+    const tag = String(idTag || "");
+    const userId = userIdFromTag(tag);
+    if (userId) {
+      const [user] = await db.select({ status: schema.users.status }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+      return user && user.status !== "blocked" ? "Accepted" : "Invalid";
+    }
+    return acceptAnyIdTag() ? "Accepted" : "Invalid";
   }
 
   async markStationOnline(chargePointId) {
-    const station = await this.findStation(chargePointId);
+    const station = await findStationByNumber(chargePointId);
     if (!station) return;
-    const wasOffline = (station.status !== "online" && !station.ocppConnected);
-    station.status = "online";
-    station.lastSeen = new Date();
-    station.ocppConnected = true;
-    await station.save();
-    this.io.emit("station_update", { stationId: station._id, stationNumber: station.stationNumber, status: station.status });
-
-    if (wasOffline && station.userId) {
-      try {
-        const { sendNotification } = await import("./notificationService.js");
-        await sendNotification({
-          userId: station.userId,
-          title: "Station Online Alert",
-          message: `Your EV charging station ${station.stationName || station.stationNumber} is back online.`,
-          type: "system",
-          metadata: { stationId: station._id, stationNumber: station.stationNumber }
-        });
-      } catch (err) {
-        console.error("❌ Error dispatching Station Online notification:", err.message);
-      }
+    const wasOffline = !station.ocppConnected;
+    const status = ["Faulted", "FAULT", "charging", "maintenance"].includes(station.status) ? station.status : "online";
+    const updated = await updateStation(station.id, { status, lastSeen: new Date(), ocppConnected: true });
+    emitPublicStation(updated, "station_update", publicStationPayload(updated));
+    if (wasOffline) {
+      notify({
+        userId: station.userId,
+        title: "Station Online",
+        message: `Your EV charging station ${station.name || station.stationNumber} is online.`,
+        type: "system",
+        metadata: { stationId: station.id, stationNumber: station.stationNumber },
+      });
     }
   }
 
   async markStationOffline(chargePointId) {
-    const station = await this.findStation(chargePointId);
+    const station = await findStationByNumber(chargePointId);
     if (!station) return;
-    station.status = "offline";
-    station.ocppConnected = false;
-    await station.save();
-    this.io.emit("station_update", { stationId: station._id, stationNumber: station.stationNumber, status: station.status });
-
-    // Send Station Offline and OCPP Disconnect alerts to the operator
-    if (station.userId) {
-      try {
-        const { sendNotification } = await import("./notificationService.js");
-        await sendNotification({
-          userId: station.userId,
-          title: "Station Offline Alert",
-          message: `Your EV charging station ${station.stationName || station.stationNumber} is offline. Please check connectivity.`,
-          type: "fault",
-          metadata: { stationId: station._id, stationNumber: station.stationNumber }
-        });
-        await sendNotification({
-          userId: station.userId,
-          title: "OCPP Disconnection Alert",
-          message: `EV Charger ${station.stationName || station.stationNumber} has disconnected from the OCPP Central System.`,
-          type: "fault",
-          metadata: { stationId: station._id, stationNumber: station.stationNumber }
-        });
-      } catch (err) {
-        console.error("❌ Error dispatching Station Offline/Disconnect notifications:", err.message);
-      }
-    }
+    const updated = await updateStation(station.id, { status: "offline", ocppConnected: false });
+    emitPublicStation(updated, "station_update", publicStationPayload(updated));
+    notify({
+      userId: station.userId,
+      title: "Station Offline",
+      message: `EV charger ${station.name || station.stationNumber} has disconnected. Please check power and network.`,
+      type: "fault",
+      metadata: { stationId: station.id, stationNumber: station.stationNumber },
+    });
   }
 
   emitOcppStatus(chargePointId, connected) {
-    this.io.emit("ocpp_status", { stationNumber: chargePointId, connected, timestamp: new Date().toISOString() });
+    getIo()?.emit("ocpp_status", { stationNumber: chargePointId, connected, timestamp: new Date().toISOString() });
   }
 
   async onBootNotification(chargePointId, payload) {
-    const station = await this.findStation(chargePointId);
+    const station = await findStationByNumber(chargePointId);
     if (!station) return;
-    const wasOffline = (station.status !== "online" && !station.ocppConnected);
-    station.ocpp = {
-      ...station.ocpp,
-      vendor: payload?.chargePointVendor,
-      model: payload?.chargePointModel,
-      firmwareVersion: payload?.firmwareVersion,
-    };
-    station.lastSeen = new Date();
-    station.status = "online";
-    station.ocppConnected = true;
-    await station.save();
-    this.io.emit("station_update", { stationId: station._id, stationNumber: station.stationNumber, status: station.status });
-
-    if (wasOffline && station.userId) {
-      try {
-        const { sendNotification } = await import("./notificationService.js");
-        await sendNotification({
-          userId: station.userId,
-          title: "Station Online Alert",
-          message: `Your EV charging station ${station.stationName || station.stationNumber} has successfully booted and is online.`,
-          type: "system",
-          metadata: { stationId: station._id, stationNumber: station.stationNumber }
-        });
-      } catch (err) {
-        console.error("❌ Error dispatching Boot notification:", err.message);
-      }
-    }
+    const status = ["Faulted", "FAULT", "charging", "maintenance"].includes(station.status) ? station.status : "online";
+    const updated = await updateStation(station.id, {
+      ocpp: {
+        ...(station.ocpp || {}),
+        vendor: payload?.chargePointVendor,
+        model: payload?.chargePointModel,
+        firmwareVersion: payload?.firmwareVersion,
+        serialNumber: payload?.chargePointSerialNumber,
+      },
+      lastSeen: new Date(),
+      status,
+      ocppConnected: true,
+    });
+    emitPublicStation(updated, "station_update", publicStationPayload(updated));
   }
 
   async onHeartbeat(chargePointId) {
-    const station = await this.findStation(chargePointId);
+    const station = await findStationByNumber(chargePointId);
     if (!station) return;
-    station.lastSeen = new Date();
-    if (station.status !== "online" && station.status !== "Faulted" && station.status !== "FAULT" && station.status !== "charging") station.status = "online";
-    station.ocppConnected = true;
-    await station.save();
-    this.io.emit("station_update", { stationId: station._id, stationNumber: station.stationNumber, status: station.status });
+    await updateStation(station.id, { lastSeen: new Date(), ocppConnected: true });
   }
 
   async onStatusNotification(chargePointId, payload) {
-    const station = await this.findStation(chargePointId);
+    const station = await findStationByNumber(chargePointId);
     if (!station) return;
 
     const connectorId = toNumber(payload?.connectorId) ?? 0;
     let status = payload?.status || "Unknown";
-    let errorCode = payload?.errorCode || "NoError";
-
-    station.lastSeen = new Date();
-    station.ocppConnected = true;
-    station.connectors = station.connectors || [];
+    const errorCode = payload?.errorCode || "NoError";
+    const values = { lastSeen: new Date(), ocppConnected: true };
 
     const faultType = mapOcppErrorToFaultType(errorCode);
     if (faultType) {
-      station.status = "Faulted";
-      station.faultStatus = faultType;
       status = "Faulted";
-      
-      const fault = await Fault.create({
-        stationId: station._id,
-        type: faultType,
-        message: payload?.info || errorCode,
-        severity: "high",
-        status: "active",
-        raw: { errorCode, status, connectorId },
-      });
+      values.status = "Faulted";
+      values.faultStatus = faultType;
+      values.health = "WARNING";
 
-      if (station.userId) {
-        try {
-          const { sendNotification } = await import("./notificationService.js");
-          await sendNotification({
-            userId: station.userId,
-            title: "Charger Fault Detected",
-            message: `Station ${station.stationName || station.stationNumber} has reported a fault: ${payload?.info || errorCode}. Severity: High.`,
-            type: "fault",
-            metadata: { stationId: station._id, stationNumber: station.stationNumber, faultId: fault._id, type: faultType }
-          });
-        } catch (err) {
-          console.error("❌ Error dispatching Fault notification:", err.message);
-        }
+      // One active hardware fault per station/type – avoid duplicates on repeated notifications.
+      const [existing] = await db
+        .select({ id: schema.faults.id })
+        .from(schema.faults)
+        .where(and(eq(schema.faults.stationId, station.id), eq(schema.faults.type, faultType), eq(schema.faults.status, "active")))
+        .limit(1);
+      if (!existing) {
+        const [fault] = await db
+          .insert(schema.faults)
+          .values({
+            id: newId(),
+            stationId: station.id,
+            type: faultType,
+            faultCode: errorCode,
+            faultName: errorCode,
+            source: "HARDWARE",
+            message: payload?.info || errorCode,
+            severity: "high",
+            status: "active",
+            raw: { errorCode, status: payload?.status, connectorId, vendorErrorCode: payload?.vendorErrorCode },
+          })
+          .returning();
+        notify({
+          userId: station.userId,
+          title: "Charger Fault Detected",
+          message: `Station ${station.name || station.stationNumber} reported a fault: ${payload?.info || errorCode}.`,
+          type: "fault",
+          metadata: { stationId: station.id, stationNumber: station.stationNumber, faultId: fault.id, type: faultType },
+        });
+        emitToOperators(station, "fault_alert", {
+          stationId: station.id,
+          stationNumber: station.stationNumber,
+          faultId: fault.id,
+          type: fault.type,
+          message: fault.message,
+          severity: fault.severity,
+          createdAt: fault.createdAt,
+        });
       }
-      this.io.emit("fault_alert", {
-        stationId: station._id,
-        stationNumber: station.stationNumber,
-        faultId: fault._id,
-        type: fault.type,
-        message: fault.message,
-        severity: fault.severity,
-        createdAt: fault.createdAt,
-      });
+    } else if (connectorId > 0 && !["Faulted", "FAULT", "maintenance"].includes(station.status)) {
+      values.status = status === "Charging" ? "charging" : status === "Unavailable" ? "offline" : "online";
     }
 
-    if (station.status === "Faulted" || station.status === "FAULT") {
-      status = "Faulted";
-      if (errorCode === "NoError" && station.connectors && station.connectors.length > 0) {
-        const activeConn = station.connectors.find(c => Number(c.connectorId) === connectorId);
-        if (activeConn && activeConn.status === "Faulted") {
-          errorCode = activeConn.errorCode || "NoError";
-        }
-      }
-    }
-
-    const existingIdx = station.connectors.findIndex((c) => Number(c.connectorId) === connectorId);
-    const connector = {
-      connectorId,
-      status,
-      errorCode,
-      updatedAt: new Date(),
-    };
-    if (existingIdx >= 0) station.connectors[existingIdx] = connector;
-    else station.connectors.push(connector);
-
-    await station.save();
-
-    this.io.emit("station_update", {
-      stationId: station._id,
-      stationNumber: station.stationNumber,
-      status: station.status,
-      connectorId,
-      connectorStatus: status,
-      errorCode,
-    });
+    if (connectorId > 0) values.connectors = setConnectorStatus(station.connectors, connectorId, status, errorCode);
+    const updated = await updateStation(station.id, values);
+    emitPublicStation(updated, "station_update", publicStationPayload(updated, { connectorId, connectorStatus: status, errorCode }));
   }
 
   extractMeterValues(payload) {
     const connectorId = toNumber(payload?.connectorId);
     const transactionId = toNumber(payload?.transactionId);
-
-    const mv = Array.isArray(payload?.meterValue) ? payload.meterValue : [];
+    const blocks = Array.isArray(payload?.meterValue) ? payload.meterValue : [];
     let timestamp = new Date();
-    let voltage;
-    let current;
-    let power;
-    let temperature;
-    let energyDelivered;
+    let voltage, current, power, temperature, energyWh;
 
-    for (const block of mv) {
+    for (const block of blocks) {
       if (block?.timestamp) timestamp = new Date(block.timestamp);
-      const sampled = Array.isArray(block?.sampledValue) ? block.sampledValue : [];
-      for (const s of sampled) {
-        const meas = String(s?.measurand || "").toLowerCase();
+      for (const s of Array.isArray(block?.sampledValue) ? block.sampledValue : []) {
+        const meas = String(s?.measurand || "Energy.Active.Import.Register").toLowerCase();
+        const unit = String(s?.unit || "").toLowerCase();
         const value = toNumber(s?.value);
         if (value === undefined) continue;
-        if (meas.includes("voltage")) voltage = value;
-        else if (meas.includes("current")) current = value;
-        else if (meas.includes("power")) power = value;
-        else if (meas.includes("temperature")) temperature = value;
-        else if (meas.includes("energy.active.import.register")) energyDelivered = value;
+        if (meas.startsWith("voltage")) voltage = value;
+        else if (meas.startsWith("current.import") || meas === "current") current = value;
+        else if (meas.startsWith("power.active.import") || meas === "power") power = unit === "w" ? value / 1000 : value;
+        else if (meas.startsWith("temperature")) temperature = value;
+        else if (meas.startsWith("energy.active.import.register")) energyWh = unit === "kwh" ? value * 1000 : value;
       }
     }
-
-    return { connectorId, transactionId, timestamp, voltage, current, power, temperature, energyDelivered };
+    if (Number.isNaN(timestamp.getTime())) timestamp = new Date();
+    return { connectorId, transactionId, timestamp, voltage, current, power, temperature, energyWh };
   }
 
   async onMeterValues(chargePointId, payload) {
-    const station = await this.findStation(chargePointId);
+    const station = await findStationByNumber(chargePointId);
     if (!station) return;
-
     const data = this.extractMeterValues(payload);
 
-    const telemetry = await Telemetry.create({
+    const session = data.transactionId !== undefined ? await activeSessionFor(station.id, data.transactionId) : null;
+    const energyKwh = data.energyWh !== undefined ? data.energyWh / 1000 : undefined;
+
+    await db.insert(schema.telemetry).values({
       stationId: station.stationNumber,
-      stationObjectId: station._id,
+      stationObjectId: station.id,
+      sessionId: session?.id,
       connectorId: data.connectorId,
       transactionId: data.transactionId,
       voltage: data.voltage,
       current: data.current,
       power: data.power,
       temperature: data.temperature,
-      energyConsumed: data.energyDelivered,
+      energyConsumed: energyKwh,
       timestamp: data.timestamp,
     });
 
-    if (data.energyDelivered !== undefined) {
-      station.totalEnergyConsumed = data.energyDelivered;
+    const stationValues = { lastSeen: new Date(), ocppConnected: true };
+    if (energyKwh !== undefined) stationValues.totalEnergyConsumed = energyKwh;
+    await updateStation(station.id, stationValues);
+
+    let sessionEnergy;
+    let bill;
+    if (session && data.energyWh !== undefined) {
+      sessionEnergy = Math.max(data.energyWh - (Number(session.meterStart) || 0), 0) / 1000;
+      bill = sessionBill(session, sessionEnergy);
+      await db
+        .update(schema.chargingSessions)
+        .set({ energyUsed: sessionEnergy, cost: bill.total, tax: bill.tax, updatedAt: new Date() })
+        .where(eq(schema.chargingSessions.id, session.id));
+      await this.enforcePrepaidLimit(station, session, bill.total);
     }
-    station.lastSeen = new Date();
-    station.ocppConnected = true;
-    await station.save();
 
     const eventPayload = {
-      stationId: station._id,
+      stationId: station.id,
       stationNumber: station.stationNumber,
       connectorId: data.connectorId,
       transactionId: data.transactionId,
+      sessionId: session?.id,
       voltage: data.voltage,
       current: data.current,
       power: data.power,
       temperature: data.temperature,
-      energyDelivered: data.energyDelivered,
-      timestamp: telemetry.timestamp || new Date(),
+      energyDelivered: sessionEnergy ?? energyKwh,
+      cost: bill?.total,
+      prepaidAmount: session?.prepaidAmount ?? undefined,
+      timestamp: data.timestamp,
     };
-
-    this.io.emit("live_data", eventPayload);
-    this.io.to(`station:${station._id}`).emit("live_data", eventPayload);
-
-    if (data.transactionId !== undefined) {
-      this.io.emit("transaction_update", {
-        stationId: station._id,
+    emitStationRoom(station, "live_data", eventPayload);
+    if (session) {
+      emitToOperatorsAndUser(station, userIdFromTag(session.idTag), "transaction_update", {
+        stationId: station.id,
         stationNumber: station.stationNumber,
         transactionId: data.transactionId,
+        sessionId: session.id,
         telemetry: eventPayload,
       });
     }
   }
 
+  /** Stop charging automatically once the running bill reaches the prepaid amount. */
+  async enforcePrepaidLimit(station, session, runningTotal) {
+    const prepaid = Number(session.prepaidAmount) || 0;
+    if (prepaid <= 0 || session.stopRequestedAt) return;
+    // Stop slightly early so the next meter reading does not overshoot the prepaid amount.
+    if (runningTotal < prepaid * 0.99) return;
+    console.log(`💰 [OCPP] Prepaid limit reached for session ${session.id} (₹${runningTotal}/₹${prepaid}); stopping`);
+    await db
+      .update(schema.chargingSessions)
+      .set({ stopRequestedAt: new Date(), stopReason: "prepaid_limit", updatedAt: new Date() })
+      .where(eq(schema.chargingSessions.id, session.id));
+    this.sendCall(station.stationNumber, "RemoteStopTransaction", { transactionId: session.ocppTransactionId }).catch((e) =>
+      console.error(`[OCPP] Auto-stop failed for ${station.stationNumber}:`, e.message)
+    );
+  }
+
+  async nextTransactionId() {
+    const { rows } = await db.execute(sql`select nextval('ocpp_transaction_id_seq')::int as id`);
+    return rows[0].id;
+  }
+
   async onStartTransaction(chargePointId, payload) {
-    const station = await this.findStation(chargePointId);
-    if (!station) return { transactionId: Math.floor(Date.now() / 1000), idTagInfo: { status: "Accepted" } };
+    const transactionId = await this.nextTransactionId();
+    const station = await findStationByNumber(chargePointId);
+    if (!station) return { transactionId, idTagInfo: { status: "Invalid" } };
 
-    const ocppTransactionId = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000);
-    const connectorId = toNumber(payload?.connectorId) ?? 0;
+    const connectorId = toNumber(payload?.connectorId) ?? 1;
     const meterStart = toNumber(payload?.meterStart) ?? 0;
-    const idTag = payload?.idTag || "unknown";
-    const startedAt = payload?.timestamp ? new Date(payload.timestamp) : new Date();
+    const idTag = String(payload?.idTag || "unknown");
+    const startedAt = payload?.timestamp && !Number.isNaN(new Date(payload.timestamp).getTime()) ? new Date(payload.timestamp) : new Date();
 
-    let paymentId = undefined;
-    let orderId = undefined;
-    if (idTag.startsWith("user:")) {
-      try {
-        const Payment = (await import("../models/Payment.js")).default;
-        const userId = idTag.replace("user:", "");
-        const payment = await Payment.findOne({
-          userId: userId,
-          stationId: station._id,
-          status: "paid"
-        }).sort({ createdAt: -1 });
-
-        if (payment) {
-          paymentId = payment.paymentId;
-          orderId = payment.orderId;
-        }
-      } catch (err) {
-        console.error("❌ Error linking payment in onStartTransaction:", err.message);
-      }
-    }
-
-    const tx = await Transaction.create({
-      stationId: station._id,
-      stationNumber: station.stationNumber,
-      connectorId,
-      ocppTransactionId,
-      idTag,
-      meterStart,
-      startTime: startedAt,
-      status: "active",
-      paymentId,
-      orderId,
-    });
+    // Who is allowed to start, and at what price?
+    const rates = stationRates(station, startedAt);
+    let pricing = { appliedPrice: rates.pricePerKwh, convenienceFee: rates.convenienceFee, taxPercent: rates.taxPercent };
+    let payment = null;
+    let userId = null;
 
     if (idTag.startsWith("user:")) {
-      try {
-        const userId = idTag.replace("user:", "");
-        const { sendNotification } = await import("./notificationService.js");
-        await sendNotification({
-          userId,
-          title: "Charging Started",
-          message: `Your EV charging session has successfully started at station ${station.stationName || station.stationNumber}.`,
-          type: "session_start",
-          metadata: { stationId: station._id, stationNumber: station.stationNumber, ocppTransactionId }
-        });
-      } catch (notifErr) {
-        console.error("❌ Error sending StartTransaction notification:", notifErr.message);
+      userId = userIdFromTag(idTag);
+      payment = await findPaidPayment(userId, station.id);
+      if (!payment) {
+        console.warn(`⚠️ [OCPP] StartTransaction rejected at ${chargePointId}: no paid order for ${idTag}`);
+        return { transactionId, idTagInfo: { status: "Invalid" } };
       }
+      pricing = {
+        appliedPrice: payment.pricePerKwh ?? rates.pricePerKwh,
+        convenienceFee: payment.convenienceFee ?? rates.convenienceFee,
+        taxPercent: payment.taxPercent ?? rates.taxPercent,
+      };
+    } else if (idTag.startsWith("operator:")) {
+      const allowed = this.operatorStarts.get(chargePointId);
+      if (!allowed || allowed.idTag !== idTag || allowed.expiresAt < Date.now()) {
+        return { transactionId, idTagInfo: { status: "Invalid" } };
+      }
+      this.operatorStarts.delete(chargePointId);
+      userId = userIdFromTag(idTag);
+    } else if (!acceptAnyIdTag()) {
+      console.warn(`⚠️ [OCPP] StartTransaction rejected at ${chargePointId}: unknown idTag`);
+      return { transactionId, idTagInfo: { status: "Invalid" } };
     }
 
-    this.io.emit("transaction_update", {
-      stationId: station._id,
+    const [session] = await db
+      .insert(schema.chargingSessions)
+      .values({
+        id: newId(),
+        stationId: station.id,
+        stationNumber: station.stationNumber,
+        userId,
+        connectorId,
+        ocppTransactionId: transactionId,
+        idTag,
+        meterStart,
+        startTime: startedAt,
+        status: "active",
+        ...pricing,
+        prepaidAmount: payment ? Number(payment.totalAmount) : null,
+        paymentId: payment?.paymentId,
+        orderId: payment?.orderId,
+      })
+      .returning();
+
+    if (payment) {
+      const [p] = await db
+        .update(schema.payments)
+        .set({ status: "charging", sessionId: session.id, updatedAt: new Date() })
+        .where(eq(schema.payments.id, payment.id))
+        .returning();
+      emitToOperatorsAndUser(station, userId, "payment_update", toApi(p));
+    }
+
+    const updated = await updateStation(station.id, {
+      status: "charging",
+      connectors: setConnectorStatus(station.connectors, connectorId, "Charging"),
+    });
+    emitPublicStation(updated, "station_update", publicStationPayload(updated, { connectorId, connectorStatus: "Charging" }));
+
+    if (idTag.startsWith("user:")) {
+      notify({
+        userId,
+        title: "Charging Started",
+        message: `Your charging session has started at ${station.name || station.stationNumber}.`,
+        type: "session_start",
+        metadata: { stationId: station.id, stationNumber: station.stationNumber, ocppTransactionId: transactionId, sessionId: session.id },
+      });
+    }
+    emitToOperatorsAndUser(station, userId, "transaction_update", {
+      stationId: station.id,
       stationNumber: station.stationNumber,
       connectorId,
-      transactionId: ocppTransactionId,
+      transactionId,
+      sessionId: session.id,
       status: "active",
-      startedAt: tx.startTime,
+      startedAt: session.startTime,
       idTag,
     });
 
-    return { transactionId: ocppTransactionId, idTagInfo: { status: "Accepted" } };
+    return { transactionId, idTagInfo: { status: "Accepted" } };
   }
 
   async onStopTransaction(chargePointId, payload) {
-    const station = await this.findStation(chargePointId);
+    const station = await findStationByNumber(chargePointId);
     if (!station) return { idTagInfo: { status: "Accepted" } };
 
     const ocppTransactionId = toNumber(payload?.transactionId);
     const meterStop = toNumber(payload?.meterStop);
-    const endedAt = payload?.timestamp ? new Date(payload.timestamp) : new Date();
+    const endedAt = payload?.timestamp && !Number.isNaN(new Date(payload.timestamp).getTime()) ? new Date(payload.timestamp) : new Date();
 
-    const tx = await Transaction.findOne({ stationId: station._id, ocppTransactionId, status: "active" });
-    if (tx) {
-      tx.status = "completed";
-      tx.endTime = endedAt;
-      if (meterStop !== undefined) tx.meterStop = meterStop;
-
-      const meterStart = tx.meterStart || 0;
-      const energyUsed = meterStop !== undefined ? Math.max((meterStop - meterStart) / 1000, 0) : undefined;
-      if (energyUsed !== undefined) tx.energyUsed = energyUsed;
-
-      const { pricePerKwh, convenienceFee, tax } = calculateCurrentRate(station, endedAt);
-      if (energyUsed !== undefined) {
-        tx.appliedPrice = pricePerKwh;
-        tx.convenienceFee = convenienceFee;
-        tx.tax = tax;
-        tx.cost = energyUsed * pricePerKwh + convenienceFee + tax;
-      }
-
-      await tx.save();
-
-      const idTag = tx.idTag;
-      if (idTag && idTag.startsWith("user:")) {
-        try {
-          const userId = idTag.replace("user:", "");
-          const { sendNotification } = await import("./notificationService.js");
-          await sendNotification({
-            userId,
-            title: "Charging Completed",
-            message: `Your charging session at station ${station.stationName || station.stationNumber} is complete. Total Energy: ${tx.energyUsed?.toFixed(2) || 0} kWh. Cost: ₹${tx.cost?.toFixed(2) || 0}.`,
-            type: "session_end",
-            metadata: { stationId: station._id, stationNumber: station.stationNumber, ocppTransactionId: tx.ocppTransactionId, energyUsed: tx.energyUsed, cost: tx.cost }
-          });
-        } catch (notifErr) {
-          console.error("❌ Error sending StopTransaction notification:", notifErr.message);
-        }
-      }
-
-      // Reconcile Cost and Auto-Refund
-      try {
-        const Payment = (await import("../models/Payment.js")).default;
-        const Session = (await import("../models/Session.js")).default;
-        
-        let payment = null;
-        if (tx.orderId) {
-          payment = await Payment.findOne({ orderId: tx.orderId });
-        } else if (tx.paymentId) {
-          payment = await Payment.findOne({ paymentId: tx.paymentId });
-        } else {
-          payment = await Payment.findOne({ sessionId: tx.sessionId });
-        }
-
-        if (payment) {
-          const estimatedAmount = payment.totalAmount || payment.amount;
-          const actualAmount = tx.cost !== undefined ? tx.cost : (energyUsed * pricePerKwh + convenienceFee + tax);
-          
-          payment.estimatedAmount = estimatedAmount;
-          payment.actualAmount = actualAmount;
-          
-          if (!payment.sessionId && tx.sessionId) {
-            payment.sessionId = tx.sessionId;
-          }
-
-          if (estimatedAmount > actualAmount) {
-            const refundAmount = Number((estimatedAmount - actualAmount).toFixed(2));
-            payment.refundAmount = refundAmount;
-            payment.extraAmount = 0;
-            payment.status = "pending_refund";
-            await payment.save();
-            
-            this.io.emit("payment_update", payment);
-
-            if (tx.idTag.startsWith("user:")) {
-              try {
-                const userId = tx.idTag.replace("user:", "");
-                const { sendNotification } = await import("./notificationService.js");
-                await sendNotification({
-                  userId,
-                  title: "Refund Initiated",
-                  message: `Your EV charging session was completed with unused energy difference. A refund of ₹${refundAmount.toFixed(2)} has been initiated.`,
-                  type: "payment",
-                  metadata: { paymentId: payment._id, amount: refundAmount }
-                });
-              } catch (notifErr) {
-                console.error("❌ Error sending Refund Initiated stop notification:", notifErr.message);
-              }
-            }
-
-            let refundId = `ref_mock_${Math.random().toString(36).substring(2, 10)}`;
-            if (payment.paymentId && !payment.paymentId.startsWith("pay_mock_")) {
-              try {
-                const Razorpay = (await import("razorpay")).default;
-                const razorpay = new Razorpay({
-                  key_id: process.env.RAZORPAY_KEY_ID,
-                  key_secret: process.env.RAZORPAY_KEY_SECRET,
-                });
-                const refund = await razorpay.payments.refund(payment.paymentId, {
-                  amount: Math.round(refundAmount * 100),
-                  notes: { reason: "Auto refund for EV charging unused energy difference" }
-                });
-                refundId = refund.id;
-              } catch (refundErr) {
-                console.error("❌ Razorpay Auto-Refund Call Error:", refundErr.message);
-              }
-            }
-
-            payment.status = "refunded";
-            payment.refundId = refundId;
-            payment.refundTimestamp = new Date();
-            await payment.save();
-
-            if (tx.idTag.startsWith("user:")) {
-              try {
-                const userId = tx.idTag.replace("user:", "");
-                const { sendNotification } = await import("./notificationService.js");
-                await sendNotification({
-                  userId,
-                  title: "Refund Completed",
-                  message: `Your auto-refund of ₹${payment.refundAmount?.toFixed(2)} has been successfully credited. Refund ID: ${refundId}.`,
-                  type: "payment",
-                  metadata: { paymentId: payment._id, refundId, amount: payment.refundAmount }
-                });
-              } catch (notifErr) {
-                console.error("❌ Error sending Refund Completed stop notification:", notifErr.message);
-              }
-            }
-          } else {
-            payment.status = "completed";
-            payment.refundAmount = 0;
-            payment.extraAmount = Number((actualAmount - estimatedAmount).toFixed(2));
-            await payment.save();
-          }
-
-          this.io.emit("payment_update", payment);
-
-          // Update MongoDB Session schema to completed if exists
-          const sessionObjId = payment.sessionId || tx.sessionId;
-          if (sessionObjId) {
-            const session = await Session.findById(sessionObjId);
-            if (session) {
-              session.status = "completed";
-              session.endTime = endedAt;
-              session.energyUsed = energyUsed || 0;
-              session.cost = actualAmount;
-              session.appliedPrice = pricePerKwh;
-              session.convenienceFee = convenienceFee;
-              session.tax = tax;
-              await session.save();
-            }
-          }
-        }
-      } catch (reconErr) {
-        console.error("❌ Error during stop cost reconciliation:", reconErr.message);
-      }
-
-      this.io.emit("transaction_update", {
-        stationId: station._id,
-        stationNumber: station.stationNumber,
-        connectorId: tx.connectorId,
-        transactionId: tx.ocppTransactionId,
-        status: "completed",
-        endedAt: tx.endTime,
-        energyUsed: tx.energyUsed,
-        cost: tx.cost,
-      });
+    const session = ocppTransactionId !== undefined ? await activeSessionFor(station.id, ocppTransactionId) : null;
+    if (session) {
+      await finalizeSession({ session, station, meterStop, endedAt, reason: payload?.reason || "stopped" });
     }
 
+    const [stillActive] = await db
+      .select({ id: schema.chargingSessions.id })
+      .from(schema.chargingSessions)
+      .where(and(eq(schema.chargingSessions.stationId, station.id), inArray(schema.chargingSessions.status, ["active", "FAULT_PAUSED"])))
+      .limit(1);
+    const values = {};
+    if (!stillActive && station.status === "charging") values.status = "online";
+    if (session) values.connectors = setConnectorStatus(station.connectors, session.connectorId, "Available");
+    if (Object.keys(values).length) {
+      const updated = await updateStation(station.id, values);
+      emitPublicStation(updated, "station_update", publicStationPayload(updated, { connectorId: session?.connectorId, connectorStatus: "Available" }));
+    }
     return { idTagInfo: { status: "Accepted" } };
   }
 }
+
+export { round2 };

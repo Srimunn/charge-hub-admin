@@ -1,23 +1,14 @@
 import express from "express";
 import { createFault, getFaults, getFaultById, resolveFault, simulateFault, getAlerts } from "../controllers/faultController.js";
-import { protect } from "../middleware/authMiddleware.js";
+import { protect, operatorOnly } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// GET all active alerts in the system (or for owned stations)
 router.get("/alerts", protect, getAlerts);
-
-// GET all faults for the user's stations
 router.get("/", protect, getFaults);
+router.post("/", protect, operatorOnly, createFault);
+router.post("/simulate", protect, operatorOnly, simulateFault);
 router.get("/:id", protect, getFaultById);
-
-// CREATE a fault
-router.post("/", protect, createFault);
-
-// SIMULATE a fault
-router.post("/simulate", protect, simulateFault);
-
-// RESOLVE a fault
-router.put("/:id", protect, resolveFault);
+router.put("/:id", protect, operatorOnly, resolveFault);
 
 export default router;

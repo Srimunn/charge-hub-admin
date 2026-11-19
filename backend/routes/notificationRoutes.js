@@ -1,220 +1,147 @@
 import express from "express";
+import { and, count, desc, eq, gte, inArray } from "drizzle-orm";
 import { protect } from "../middleware/authMiddleware.js";
-import Notification from "../models/Notification.js";
-import User from "../models/User.js";
+import { db, schema, newId, toApi } from "../db/index.js";
 import { sendNotification } from "../services/notificationService.js";
-import DeviceToken from "../models/DeviceToken.js";
 
 const router = express.Router();
+const N = schema.notifications;
 
-// @desc    Get all notifications for logged-in operator with pagination
-// @route   GET /api/notifications
-// @access  Private
+// GET /api/notifications?page=&limit=
 router.get("/", protect, async (req, res) => {
-    try {
-        const userId = req.user._id || req.user.id;
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 20;
-        const skip = (page - 1) * limit;
-
-        const notifications = await Notification.find({ userId })
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limit);
-        res.status(200).json(notifications);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+  try {
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
+    const rows = await db
+      .select()
+      .from(N)
+      .where(eq(N.userId, req.user.id))
+      .orderBy(desc(N.createdAt))
+      .limit(limit)
+      .offset((page - 1) * limit);
+    res.status(200).json(rows.map((r) => toApi(r)));
+  } catch (err) {
+    res.status(500).json({ error: "Failed to load notifications" });
+  }
 });
 
-// @desc    Get aggregate statistics of notifications
-// @route   GET /api/notifications/stats
-// @access  Private
+// GET /api/notifications/stats
 router.get("/stats", protect, async (req, res) => {
-    try {
-        const userId = req.user._id || req.user.id;
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
+  try {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const mine = eq(N.userId, req.user.id);
+    const countWhere = async (where) => (await db.select({ c: count() }).from(N).where(where))[0].c;
 
-        const totalNotifications = await Notification.countDocuments({ userId });
-        const sentToday = await Notification.countDocuments({ 
-            userId, 
-            createdAt: { $gte: todayStart } 
-        });
+    const totalNotifications = await countWhere(mine);
+    const sentToday = await countWhere(and(mine, gte(N.createdAt, todayStart)));
+    const unread = await countWhere(and(mine, eq(N.read, false)));
+    const emailCount = await countWhere(and(mine, inArray(N.type, ["session_start", "session_end", "payment", "fault"])));
+    const smsCount = await countWhere(and(mine, eq(N.type, "otp")));
+    const pushCount = await countWhere(and(mine, inArray(N.type, ["fault", "payment", "session_start", "session_end"])));
 
-        // Compute simulated channels logs
-        const emailCount = await Notification.countDocuments({ userId, type: { $in: ["session_start", "session_end", "payment", "fault"] } });
-        const smsCount = await Notification.countDocuments({ userId, type: "otp" });
-        const pushCount = await Notification.countDocuments({ userId, type: { $in: ["fault", "payment", "session_start", "session_end"] } });
-
-        res.status(200).json({
-            totalNotifications,
-            sentToday,
-            failedNotifications: 0, // Mocked 0 failures
-            smsStatistics: {
-                total: smsCount,
-                delivered: smsCount,
-                failed: 0
-            },
-            emailStatistics: {
-                total: emailCount,
-                sent: emailCount,
-                failed: 0
-            },
-            pushStatistics: {
-                total: pushCount,
-                sent: pushCount,
-                failed: 0
-            }
-        });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    res.status(200).json({
+      totalNotifications,
+      sentToday,
+      unread,
+      failedNotifications: 0,
+      smsStatistics: { total: smsCount, delivered: smsCount, failed: 0 },
+      emailStatistics: { total: emailCount, sent: emailCount, failed: 0 },
+      pushStatistics: { total: pushCount, sent: pushCount, failed: 0 },
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to load notification stats" });
+  }
 });
 
-// @desc    Post / trigger a manual notification test
-// @route   POST /api/notifications/send
-// @access  Private
+// POST /api/notifications/send – send a test notification to yourself
 router.post("/send", protect, async (req, res) => {
-    try {
-        const { title, message, type, metadata } = req.body;
-        const userId = req.user._id || req.user.id;
-
-        if (!title || !message) {
-            return res.status(400).json({ error: "Title and message are required" });
-        }
-
-        const result = await sendNotification({
-            userId,
-            title,
-            message,
-            type: type || "general",
-            metadata: metadata || {}
-        });
-
-        if (!result.success) {
-            return res.status(500).json({ error: result.error });
-        }
-
-        res.status(201).json(result);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+  try {
+    const { title, message, type, metadata } = req.body;
+    if (!title || !message) return res.status(400).json({ error: "Title and message are required" });
+    const allowed = ["fault", "payment", "session_start", "session_end", "system", "general"];
+    const result = await sendNotification({
+      userId: req.user.id,
+      title: String(title).slice(0, 200),
+      message: String(message).slice(0, 2000),
+      type: allowed.includes(type) ? type : "general",
+      metadata: metadata && typeof metadata === "object" ? metadata : {},
+    });
+    if (!result.success) return res.status(500).json({ error: result.error });
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(500).json({ error: "Could not send notification" });
+  }
 });
 
-// @desc    Mark one or all notifications as read
-// @route   PUT /api/notifications/read
-// @access  Private
+// PUT /api/notifications/read { notificationIds?: string[] }
 router.put("/read", protect, async (req, res) => {
-    try {
-        const userId = req.user._id || req.user.id;
-        const { notificationIds } = req.body; // Array of IDs, or empty to mark all
-
-        if (notificationIds && Array.isArray(notificationIds) && notificationIds.length > 0) {
-            await Notification.updateMany(
-                { _id: { $in: notificationIds }, userId },
-                { $set: { read: true } }
-            );
-        } else {
-            // Mark all as read
-            await Notification.updateMany(
-                { userId, read: false },
-                { $set: { read: true } }
-            );
-        }
-
-        res.status(200).json({ success: true, message: "Notifications updated successfully" });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+  try {
+    const { notificationIds } = req.body;
+    const where =
+      Array.isArray(notificationIds) && notificationIds.length > 0
+        ? and(eq(N.userId, req.user.id), inArray(N.id, notificationIds.map(String)))
+        : and(eq(N.userId, req.user.id), eq(N.read, false));
+    await db.update(N).set({ read: true }).where(where);
+    res.status(200).json({ success: true, message: "Notifications updated successfully" });
+  } catch (err) {
+    res.status(500).json({ error: "Could not update notifications" });
+  }
 });
 
-// @desc    Update notification preference settings
-// @route   PUT /api/notifications/preferences
-// @access  Private
+// PUT /api/notifications/preferences
 router.put("/preferences", protect, async (req, res) => {
-    try {
-        const userId = req.user._id || req.user.id;
-        const { emailAlerts, smsAlerts, pushAlerts, faultAlerts, paymentAlerts } = req.body;
-
-        const updateData = {};
-        if (emailAlerts !== undefined) updateData["notificationPreferences.emailAlerts"] = emailAlerts;
-        if (smsAlerts !== undefined) updateData["notificationPreferences.smsAlerts"] = smsAlerts;
-        if (pushAlerts !== undefined) updateData["notificationPreferences.pushAlerts"] = pushAlerts;
-        if (faultAlerts !== undefined) updateData["notificationPreferences.faultAlerts"] = faultAlerts;
-        if (paymentAlerts !== undefined) updateData["notificationPreferences.paymentAlerts"] = paymentAlerts;
-
-        const updatedUser = await User.findByIdAndUpdate(
-            userId,
-            { $set: updateData },
-            { new: true }
-        ).select("-password");
-
-        res.status(200).json(updatedUser.notificationPreferences);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+  try {
+    const keys = ["emailAlerts", "smsAlerts", "pushAlerts", "faultAlerts", "paymentAlerts"];
+    const prefs = { ...(req.user.notificationPreferences || {}) };
+    for (const k of keys) if (typeof req.body[k] === "boolean") prefs[k] = req.body[k];
+    const [updated] = await db
+      .update(schema.users)
+      .set({ notificationPreferences: prefs, updatedAt: new Date() })
+      .where(eq(schema.users.id, req.user.id))
+      .returning({ notificationPreferences: schema.users.notificationPreferences });
+    res.status(200).json(updated.notificationPreferences);
+  } catch (err) {
+    res.status(500).json({ error: "Could not update preferences" });
+  }
 });
 
-// @desc    Register native device push token (FCM)
-// @route   POST /api/notifications/register-device
-// @access  Private
+// POST /api/notifications/register-device { deviceToken|token, platform, appVersion }
 router.post("/register-device", protect, async (req, res) => {
-    try {
-        const userId = req.user._id || req.user.id;
-        const { token, deviceToken, platform, appVersion } = req.body;
-        const actualToken = deviceToken || token;
-
-        if (!actualToken) {
-            return res.status(400).json({ error: "Device token is required" });
-        }
-
-        // Upsert token in deviceTokens collection
-        await DeviceToken.findOneAndUpdate(
-            { deviceToken: actualToken },
-            { 
-                userId, 
-                platform: platform || "android", 
-                appVersion: appVersion || "1.0.0" 
-            },
-            { upsert: true, new: true }
-        );
-
-        // Also update the main user document fcmToken for convenience
-        await User.findByIdAndUpdate(userId, { fcmToken: actualToken });
-
-        res.status(200).json({ success: true, message: "Device token registered successfully" });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+  try {
+    const actualToken = req.body.deviceToken || req.body.token;
+    if (!actualToken) return res.status(400).json({ error: "Device token is required" });
+    const values = {
+      userId: req.user.id,
+      platform: req.body.platform || "android",
+      appVersion: req.body.appVersion || "1.0.0",
+      updatedAt: new Date(),
+    };
+    await db
+      .insert(schema.deviceTokens)
+      .values({ id: newId(), deviceToken: String(actualToken), ...values })
+      .onConflictDoUpdate({ target: schema.deviceTokens.deviceToken, set: values });
+    await db.update(schema.users).set({ fcmToken: String(actualToken) }).where(eq(schema.users.id, req.user.id));
+    res.status(200).json({ success: true, message: "Device token registered successfully" });
+  } catch (err) {
+    res.status(500).json({ error: "Could not register device" });
+  }
 });
 
-// @desc    Unregister device push token (FCM) on logout
-// @route   DELETE /api/notifications/unregister-device
-// @access  Private
+// DELETE /api/notifications/unregister-device
 router.delete("/unregister-device", protect, async (req, res) => {
-    try {
-        const userId = req.user._id || req.user.id;
-        const { token, deviceToken } = req.body;
-        const actualToken = deviceToken || token;
-
-        if (actualToken) {
-            await DeviceToken.deleteOne({ deviceToken: actualToken, userId });
-        } else {
-            await DeviceToken.deleteMany({ userId });
-        }
-
-        // Clear user fcmToken field if it matches
-        const user = await User.findById(userId);
-        if (user && (!actualToken || user.fcmToken === actualToken)) {
-            user.fcmToken = "";
-            await user.save();
-        }
-
-        res.status(200).json({ success: true, message: "Device token unregistered successfully" });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+  try {
+    const actualToken = req.body?.deviceToken || req.body?.token;
+    const D = schema.deviceTokens;
+    if (actualToken) await db.delete(D).where(and(eq(D.deviceToken, String(actualToken)), eq(D.userId, req.user.id)));
+    else await db.delete(D).where(eq(D.userId, req.user.id));
+    if (!actualToken || req.user.fcmToken === actualToken) {
+      await db.update(schema.users).set({ fcmToken: "" }).where(eq(schema.users.id, req.user.id));
     }
+    res.status(200).json({ success: true, message: "Device token unregistered successfully" });
+  } catch (err) {
+    res.status(500).json({ error: "Could not unregister device" });
+  }
 });
 
 export default router;

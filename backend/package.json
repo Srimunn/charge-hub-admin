@@ -12,14 +12,21 @@
     "cloudinary": "^2.9.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
+    "drizzle-orm": "^0.45.4",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.7.5",
     "firebase-admin": "^14.1.0",
     "google-auth-library": "^10.7.0",
+    "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.3.3",
     "multer": "^2.1.1",
+    "pg": "^8.23.1",
     "razorpay": "^2.9.6",
     "socket.io": "^4.8.3",
     "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.11",
+    "mongodb": "^7.9.0"
   }
 }

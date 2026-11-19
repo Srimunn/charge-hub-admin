@@ -1,359 +1,242 @@
-import jwt from 'jsonwebtoken';
-import User from '../models/User.js';
-import { logEvent } from './auditLogController.js';
+import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
+import { eq, or } from "drizzle-orm";
+import { db, schema, newId } from "../db/index.js";
+import { logEvent } from "./auditLogController.js";
 import { sendEmail, sendSMS } from "../services/notificationService.js";
+import { issueOtp, checkOtp, isOtpVerified, clearOtp, otpDebugEnabled } from "../services/otpService.js";
 
 export const generateToken = (id) => {
-    if (!process.env.JWT_SECRET) {
-        throw new Error('JWT_SECRET is not set in environment variables');
-    }
-    return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  if (!process.env.JWT_SECRET) throw new Error("JWT_SECRET is not set in environment variables");
+  return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "7d" });
 };
 
-// Global mock memory for OTPs (in real prod, use Redis)
-const otpStore = new Map();
+export const hashPin = async (pin) => bcrypt.hash(String(pin), 10);
+export const isValidPin = (pin) => typeof pin === "string" && /^\d{6}$/.test(pin);
+export const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
+/** Emails listed in ADMIN_EMAILS (comma-separated) are platform admins. */
+export const isAdminEmail = (email) =>
+  (process.env.ADMIN_EMAILS || "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean).includes(normalizeEmail(email));
+const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+const otpEmailHtml = (heading, intro, code, color = "#3b82f6") => `
+  <div style="font-family:sans-serif;text-align:center;padding:20px;max-width:500px;margin:auto;border:1px solid #eee;border-radius:12px">
+    <h3 style="color:#0f172a">${heading}</h3>
+    <p style="color:#475569;font-size:14px">${intro}</p>
+    <div style="font-size:32px;font-weight:bold;letter-spacing:0.2em;margin:24px 0;color:${color}">${code}</div>
+    <p style="color:#94a3b8;font-size:12px">This code expires in 5 minutes. Do not share it with anyone.</p>
+  </div>`;
+
+const authPayload = (user) => ({
+  _id: user.id,
+  name: user.name,
+  email: user.email,
+  mobile: user.mobile,
+  role: user.role,
+  token: generateToken(user.id),
+});
 
 export const registerUser = async (req, res) => {
-    try {
-        console.log('📥 INBOUND REQUEST: POST /auth/register', { ...req.body, password: '***' });
-        const { name, email, password, mobile } = req.body;
+  try {
+    const { name, password, mobile } = req.body;
+    const email = normalizeEmail(req.body.email);
 
-        if (!name || !email || !password || !mobile) {
-            return res.status(400).json({ error: "Please add all fields" });
-        }
+    if (!name || !email || !password || !mobile) return res.status(400).json({ error: "Please add all fields" });
+    if (!isValidEmail(email)) return res.status(400).json({ error: "Please enter a valid email address" });
+    if (!isValidPin(password)) return res.status(400).json({ error: "PIN must be exactly 6 digits" });
 
-        if (password.length !== 6 || !/^\d+$/.test(password)) {
-            return res.status(400).json({ error: "PIN must be exactly 6 digits" });
-        }
+    const [exists] = await db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(or(eq(schema.users.email, email), eq(schema.users.mobile, String(mobile))))
+      .limit(1);
+    if (exists) return res.status(400).json({ error: "User already exists with this email or mobile" });
 
-        const userExists = await User.findOne({ $or: [{ email }, { mobile }] });
-        if (userExists) {
-            return res.status(400).json({ error: "User already exists with this email or mobile" });
-        }
+    // Self-registration is for mobile-app customers. Owners/admins are created by an admin.
+    const [user] = await db
+      .insert(schema.users)
+      .values({
+        id: newId(),
+        name: String(name).trim(),
+        email,
+        password: await hashPin(password),
+        mobile: String(mobile),
+        role: "customer",
+      })
+      .returning();
 
-        const user = new User({ name, email, password, mobile });
-        await user.save();
+    const otpCode = await issueOtp({ purpose: "register", email, userId: user.id });
+    await sendEmail(
+      email,
+      "EV Charge - Security Code for Account Registration",
+      `Your account registration security code is: ${otpCode}. Valid for 5 minutes.`,
+      otpEmailHtml("Welcome to EV Charge!", "Use this code to complete your registration:", otpCode)
+    );
+    await sendSMS(mobile, `Your EV Charge registration OTP is ${otpCode}. Valid for 5 mins.`);
 
-        const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-
-        // Set OTP in otpStore for the verification step
-        otpStore.set(email, {
-            otp: otpCode,
-            userId: user._id,
-            type: "register",
-            expiresAt: Date.now() + 5 * 60 * 1000,
-            attempts: 0
-        });
-
-        console.log(`[OTP] Generated registration OTP for ${email}: ${otpCode}`);
-
-        // Dispatch actual Email via Resend
-        await sendEmail(
-            email,
-            "EV Charge - Security Code for Account Registration",
-            `Welcome to EV Charge! Your account registration security code is: ${otpCode}. Valid for 5 minutes.`,
-            `<div style="font-family: sans-serif; text-align: center; padding: 20px; max-width: 500px; margin: auto; border: 1px solid #eee; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-                <h3 style="color: #0f172a; font-size: 18px; font-weight: bold;">Welcome to EV Charge!</h3>
-                <p style="color: #475569; font-size: 14px; margin-top: 10px;">Please use the security code below to complete your operator profile registration:</p>
-                <div style="font-size: 32px; font-weight: bold; letter-spacing: 0.2em; margin: 24px 0; color: #3b82f6; background: #eff6ff; padding: 12px; rounded: 8px; border: 1px solid #dbeafe;">${otpCode}</div>
-                <p style="color: #94a3b8; font-size: 12px; line-height: 1.5;">This registration security code will expire in 5 minutes. Do not share this OTP with anyone.</p>
-             </div>`
-        );
-
-        // Dispatch actual SMS via MSG91
-        if (mobile) {
-            await sendSMS(mobile, `Welcome to EV Charge! Your account registration security OTP is ${otpCode}. Valid for 5 mins.`);
-        }
-
-        return res.status(201).json({ 
-            message: "Registration successful. An OTP has been sent (Mock).",
-            otp: otpCode,
-            user: { id: user._id, name: user.name, email: user.email, mobile: user.mobile }
-        });
-    } catch (err) {
-        console.error("Register Error:", err);
-        res.status(500).json({ error: err.message });
-    }
+    return res.status(201).json({
+      message: "Registration successful. An OTP has been sent to your email and mobile.",
+      ...(otpDebugEnabled() ? { otp: otpCode } : {}),
+      user: { id: user.id, name: user.name, email: user.email, mobile: user.mobile },
+    });
+  } catch (err) {
+    console.error("Register Error:", err.message);
+    res.status(500).json({ error: "Registration failed. Please try again." });
+  }
 };
 
 export const loginUser = async (req, res) => {
-    try {
-        console.log('📥 INBOUND REQUEST: POST /auth/login', { email: req.body.email, password: '***' });
-        const { email, password } = req.body;
-        if (!email || !password) {
-            return res.status(400).json({ error: "Please enter email/mobile and PIN" });
-        }
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: "Please enter email/mobile and PIN" });
 
-        const identifier = email.trim();
-        const user = await User.findOne({
-            $or: [
-                { email: identifier.toLowerCase() },
-                { mobile: identifier }
-            ]
-        });
+    const identifier = String(email).trim();
+    const [user] = await db
+      .select()
+      .from(schema.users)
+      .where(or(eq(schema.users.email, identifier.toLowerCase()), eq(schema.users.mobile, identifier)))
+      .limit(1);
 
-        if (user && (await user.comparePassword(password))) {
-            const generatedToken = generateToken(user._id);
-            console.log('🔐 Generated JWT token:', generatedToken);
-            return res.status(200).json({
-                _id: user._id, name: user.name, email: user.email, mobile: user.mobile,
-                token: generatedToken,
-            });
-        }
-        res.status(400).json({ error: "Invalid credentials" });
-    } catch (err) {
-        console.error("Login Error:", err);
-        res.status(500).json({ error: err.message });
-    }
+    const valid = user?.password ? await bcrypt.compare(String(password), user.password) : false;
+    if (!user || !valid) return res.status(400).json({ error: "Invalid credentials" });
+    if (user.status === "blocked") return res.status(403).json({ error: "Account is blocked. Contact the administrator." });
+
+    await logEvent(user.id, "Login", req);
+    return res.status(200).json(authPayload(user));
+  } catch (err) {
+    console.error("Login Error:", err.message);
+    res.status(500).json({ error: "Login failed. Please try again." });
+  }
 };
 
 export const verifyOTP = async (req, res) => {
-    try {
-        const { email, otp } = req.body;
+  try {
+    const email = normalizeEmail(req.body.email);
+    const { otp } = req.body;
+    if (!email || !otp) return res.status(400).json({ error: "Email and OTP required" });
 
-        if (!email || !otp) return res.status(400).json({ error: "Email and OTP required" });
+    const result = await checkOtp({ purpose: "register", email, code: otp });
+    if (!result.ok) return res.status(400).json({ error: result.error });
 
-        const session = otpStore.get(email);
-        if (!session) return res.status(400).json({ error: "OTP session expired or invalid" });
-
-        if (session.otp !== otp) {
-            return res.status(400).json({ error: "Incorrect OTP" });
-        }
-
-        // Successfully matched OTP
-        const user = await User.findById(session.userId);
-        if (!user) return res.status(404).json({ error: "User not found" });
-
-        // Grant completely authorized JSON Response
-        otpStore.delete(email); // Clean up used OTP
-        
-        console.log(`✅ User ${session.type} verified successfully`);
-        res.json({
-            _id: user._id,
-            name: user.name,
-            email: user.email,
-            mobile: user.mobile,
-            token: generateToken(user._id),
-        });
-
-    } catch (err) {
-        console.error("OTP Verify Error:", err);
-        res.status(500).json({ error: err.message });
-    }
-}
+    const [user] = await db.select().from(schema.users).where(eq(schema.users.id, result.userId)).limit(1);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(authPayload(user));
+  } catch (err) {
+    console.error("OTP Verify Error:", err.message);
+    res.status(500).json({ error: "OTP verification failed" });
+  }
+};
 
 export const requestPasswordOTP = async (req, res) => {
+  try {
+    const email = req.user.email;
+    let otpCode;
     try {
-        const email = req.user.email;
-        
-        // Rate-limiting check: 30 seconds
-        const existingSession = otpStore.get(email);
-        if (existingSession && existingSession.lastSentAt && (Date.now() - existingSession.lastSentAt) < 30 * 1000) {
-            const timeRemaining = Math.ceil((30 * 1000 - (Date.now() - existingSession.lastSentAt)) / 1000);
-            return res.status(400).json({ error: `Please wait ${timeRemaining} seconds before requesting a new OTP.` });
-        }
-
-        const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-        
-        otpStore.set(email, {
-            otp: otpCode,
-            userId: req.user._id,
-            type: "change-password",
-            expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes expiry
-            attempts: 0,
-            lastSentAt: Date.now(),
-            verified: false
-        });
-
-        console.log(`[OTP] Generated password change OTP for ${email}: ${otpCode}`);
-        
-        // Dispatch actual Email via Resend
-        await sendEmail(
-            email,
-            "EV Charge - Security Code for Password Change",
-            `Your password change security code is: ${otpCode}. It will expire in 5 minutes.`,
-            `<div style="font-family: sans-serif; text-align: center; padding: 20px; max-width: 500px; margin: auto; border: 1px solid #eee; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-                <h3 style="color: #0f172a;">EV Charge Security Verification</h3>
-                <p style="color: #475569; font-size: 14px;">Your password change verification code is:</p>
-                <div style="font-size: 32px; font-weight: bold; letter-spacing: 0.15em; margin: 24px 0; color: #ef4444; background: #fef2f2; padding: 12px; rounded: 8px; border: 1px solid #fee2e2;">${otpCode}</div>
-                <p style="color: #94a3b8; font-size: 12px; line-height: 1.5;">This code is valid for 5 minutes. If you did not request this password reset, please secure your account immediately.</p>
-             </div>`
-        );
-
-        // Dispatch actual SMS via MSG91
-        if (req.user.mobile) {
-            await sendSMS(req.user.mobile, `Your EV Charge password change security OTP is ${otpCode}. Valid for 5 mins.`);
-        }
-        
-        await logEvent(req.user._id, "OTP Sent", req);
-
-        res.status(200).json({ 
-            message: "OTP sent successfully to your registered mobile phone and email (Mock: check console or response)",
-            otp: otpCode
-        });
-    } catch (err) {
-        console.error("Request Password OTP Error:", err);
-        res.status(500).json({ error: err.message });
+      otpCode = await issueOtp({ purpose: "change-password", email, userId: req.user.id });
+    } catch (e) {
+      if (e.status === 429) return res.status(400).json({ error: e.message });
+      throw e;
     }
+    await sendEmail(
+      email,
+      "EV Charge - Security Code for PIN Change",
+      `Your PIN change security code is: ${otpCode}. It will expire in 5 minutes.`,
+      otpEmailHtml("EV Charge Security Verification", "Your PIN change verification code is:", otpCode, "#ef4444")
+    );
+    if (req.user.mobile) await sendSMS(req.user.mobile, `Your EV Charge PIN change OTP is ${otpCode}. Valid for 5 mins.`);
+    await logEvent(req.user.id, "OTP Sent", req);
+
+    res.status(200).json({
+      message: "OTP sent to your registered email and mobile number",
+      ...(otpDebugEnabled() ? { otp: otpCode } : {}),
+    });
+  } catch (err) {
+    console.error("Request Password OTP Error:", err.message);
+    res.status(500).json({ error: "Could not send OTP" });
+  }
 };
 
 export const verifyPasswordOTP = async (req, res) => {
-    try {
-        const { otp } = req.body;
-        if (!otp) {
-            return res.status(400).json({ error: "OTP is required" });
-        }
-
-        const email = req.user.email;
-        const session = otpStore.get(email);
-
-        if (!session || session.type !== "change-password") {
-            return res.status(400).json({ error: "No active OTP request found. Please request a new OTP." });
-        }
-
-        if (session.expiresAt < Date.now()) {
-            otpStore.delete(email);
-            return res.status(400).json({ error: "OTP has expired. Please request a new one." });
-        }
-
-        if (session.otp !== otp) {
-            session.attempts = (session.attempts || 0) + 1;
-            if (session.attempts >= 3) {
-                otpStore.delete(email);
-                return res.status(400).json({ error: "Too many failed attempts. This OTP has been invalidated. Please request a new one." });
-            }
-            otpStore.set(email, session);
-            const attemptsLeft = 3 - session.attempts;
-            return res.status(400).json({ error: `Incorrect OTP code. ${attemptsLeft} attempts remaining.` });
-        }
-
-        // OTP verified successfully
-        session.verified = true;
-        otpStore.set(email, session);
-
-        await logEvent(req.user._id, "OTP Verified", req);
-
-        res.status(200).json({ message: "OTP verified successfully. You can now set your new PIN." });
-    } catch (err) {
-        console.error("Verify Password OTP Error:", err);
-        res.status(500).json({ error: err.message });
-    }
+  try {
+    const { otp } = req.body;
+    if (!otp) return res.status(400).json({ error: "OTP is required" });
+    const result = await checkOtp({ purpose: "change-password", email: req.user.email, code: otp, consume: false });
+    if (!result.ok) return res.status(400).json({ error: result.error });
+    await logEvent(req.user.id, "OTP Verified", req);
+    res.status(200).json({ message: "OTP verified successfully. You can now set your new PIN." });
+  } catch (err) {
+    console.error("Verify Password OTP Error:", err.message);
+    res.status(500).json({ error: "OTP verification failed" });
+  }
 };
 
 export const changePassword = async (req, res) => {
-    try {
-        const { currentPassword, newPassword } = req.body;
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!isValidPin(newPassword)) return res.status(400).json({ error: "New PIN must be exactly 6 digits and numeric" });
 
-        if (!newPassword) {
-            return res.status(400).json({ error: "Please enter a new PIN" });
-        }
-        if (newPassword.length !== 6 || !/^\d+$/.test(newPassword)) {
-            return res.status(400).json({ error: "New PIN must be exactly 6 digits and numeric" });
-        }
+    const [user] = await db.select().from(schema.users).where(eq(schema.users.id, req.user.id)).limit(1);
+    if (!user) return res.status(404).json({ error: "User not found" });
 
-        const user = await User.findById(req.user._id);
-        if (!user) return res.status(404).json({ error: "User not found" });
-
-        const email = req.user.email;
-        const session = otpStore.get(email);
-
-        // Determine if they are doing Direct Change or Reset via OTP
-        if (currentPassword) {
-            // Direct Change flow
-            if (currentPassword === newPassword) {
-                return res.status(400).json({ error: "New PIN cannot be the same as current PIN" });
-            }
-            const isMatch = await user.comparePassword(currentPassword);
-            if (!isMatch) {
-                return res.status(400).json({ error: "Current PIN is incorrect" });
-            }
-
-            // Update PIN
-            user.password = newPassword;
-            await user.save();
-
-            await logEvent(user._id, "PIN Changed", req);
-        } else {
-            // Reset via OTP flow
-            if (!session || session.type !== "change-password" || !session.verified) {
-                return res.status(400).json({ error: "OTP verification required before resetting PIN." });
-            }
-
-            // Update PIN
-            user.password = newPassword;
-            await user.save();
-
-            // Clear OTP session
-            otpStore.delete(email);
-
-            await logEvent(user._id, "PIN Reset via OTP", req);
-        }
-
-        console.log(`✅ PIN updated successfully for user ${req.user.email}`);
-        res.status(200).json({ message: "Security PIN updated successfully." });
-    } catch (err) {
-        console.error("Change Password Error:", err);
-        res.status(500).json({ error: err.message });
+    if (currentPassword) {
+      if (currentPassword === newPassword) return res.status(400).json({ error: "New PIN cannot be the same as current PIN" });
+      const ok = user.password ? await bcrypt.compare(String(currentPassword), user.password) : false;
+      if (!ok) return res.status(400).json({ error: "Current PIN is incorrect" });
+      await db.update(schema.users).set({ password: await hashPin(newPassword), updatedAt: new Date() }).where(eq(schema.users.id, user.id));
+      await logEvent(user.id, "PIN Changed", req);
+    } else {
+      if (!(await isOtpVerified({ purpose: "change-password", email: user.email }))) {
+        return res.status(400).json({ error: "OTP verification required before resetting PIN." });
+      }
+      await db.update(schema.users).set({ password: await hashPin(newPassword), updatedAt: new Date() }).where(eq(schema.users.id, user.id));
+      await clearOtp({ purpose: "change-password", email: user.email });
+      await logEvent(user.id, "PIN Reset via OTP", req);
     }
+    res.status(200).json({ message: "Security PIN updated successfully." });
+  } catch (err) {
+    console.error("Change Password Error:", err.message);
+    res.status(500).json({ error: "Could not update PIN" });
+  }
 };
 
 export const updateSessionTimeout = async (req, res) => {
-    try {
-        const { timeout } = req.body;
-        const parsedTimeout = parseInt(timeout, 10);
-        if (!timeout || isNaN(parsedTimeout) || parsedTimeout <= 0) {
-            return res.status(400).json({ error: "Please provide a valid session timeout in minutes." });
-        }
-
-        const user = await User.findById(req.user._id);
-        if (!user) return res.status(404).json({ error: "User not found" });
-
-        user.sessionTimeout = parsedTimeout;
-        await user.save();
-
-        await logEvent(user._id, "Session Timeout Changed", req);
-
-        res.status(200).json({ 
-            message: "Session timeout updated successfully.", 
-            sessionTimeout: user.sessionTimeout 
-        });
-    } catch (err) {
-        console.error("Update Session Timeout Error:", err);
-        res.status(500).json({ error: err.message });
+  try {
+    const parsed = parseInt(req.body.timeout, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 24 * 60) {
+      return res.status(400).json({ error: "Please provide a valid session timeout in minutes." });
     }
+    await db.update(schema.users).set({ sessionTimeout: parsed, updatedAt: new Date() }).where(eq(schema.users.id, req.user.id));
+    await logEvent(req.user.id, "Session Timeout Changed", req);
+    res.status(200).json({ message: "Session timeout updated successfully.", sessionTimeout: parsed });
+  } catch (err) {
+    res.status(500).json({ error: "Could not update session timeout" });
+  }
+};
+
+const maskEmail = (email) => {
+  if (!email) return "";
+  const [name, domain] = email.split("@");
+  if (name.length <= 2) return `${name[0]}***@${domain}`;
+  return `${name[0]}${"*".repeat(name.length - 2)}${name[name.length - 1]}@${domain}`;
+};
+const maskMobile = (mobile) => {
+  if (!mobile) return "";
+  const clean = mobile.replace(/\s+/g, "");
+  if (clean.length <= 6) return clean;
+  return `${clean.substring(0, 3)}XXXXXXX${clean.substring(clean.length - 3)}`;
 };
 
 export const getMe = async (req, res) => {
-    try {
-        const user = await User.findById(req.user._id);
-        if (!user) return res.status(404).json({ error: "User not found" });
-
-        const maskEmail = (email) => {
-            if (!email) return "";
-            const [name, domain] = email.split("@");
-            if (name.length <= 2) return `${name[0]}***@${domain}`;
-            return `${name[0]}${"*".repeat(name.length - 2)}${name[name.length - 1]}@${domain}`;
-        };
-
-        const maskMobile = (mobile) => {
-            if (!mobile) return "";
-            const clean = mobile.replace(/\s+/g, "");
-            if (clean.length <= 6) return clean;
-            return `${clean.substring(0, 3)}XXXXXXX${clean.substring(clean.length - 3)}`;
-        };
-
-        res.json({
-            _id: user._id,
-            name: user.name,
-            email: user.email,
-            mobile: user.mobile,
-            maskedEmail: maskEmail(user.email),
-            maskedMobile: maskMobile(user.mobile),
-            sessionTimeout: user.sessionTimeout || 30
-        });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+  const user = req.user;
+  res.json({
+    _id: user.id,
+    name: user.name,
+    email: user.email,
+    mobile: user.mobile,
+    role: user.role,
+    maskedEmail: maskEmail(user.email),
+    maskedMobile: maskMobile(user.mobile),
+    sessionTimeout: user.sessionTimeout || 30,
+    notificationPreferences: user.notificationPreferences,
+  });
 };
-
-

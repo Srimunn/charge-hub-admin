@@ -1,7 +1,8 @@
 // API URL resolution strategy:
-// - Browser (client-side): use "" (empty string) so all fetch calls go to the same origin,
-//   and Next.js rewrites (/api/* → backend) handle the proxying transparently.
-// - Server-side (SSR / NextAuth callbacks): use NEXT_PUBLIC_API_URL or BACKEND_API_URL
+// - Browser (client-side): use NEXT_PUBLIC_API_URL (baked in at build time, e.g.
+//   https://operator-api.magnertia.in). If it is missing on a deployed host, fall back to ""
+//   (same origin) so middleware.ts proxies /api/* to BACKEND_API_URL.
+// - Server-side (SSR / NextAuth callbacks): use BACKEND_API_URL or NEXT_PUBLIC_API_URL
 //   so Next.js can reach the backend directly.
 const getApiUrl = (): string => {
   if (typeof window !== "undefined") {
@@ -9,9 +10,9 @@ const getApiUrl = (): string => {
     if (envUrl && envUrl !== "undefined" && envUrl !== "null" && envUrl.trim() !== "") {
       return envUrl.replace(/\/$/, "");
     }
-    // Dynamic domain fallback for production on Nimbuz
-    if (window.location.hostname.includes("nimbuz.tech")) {
-      return "https://charge-hub-backend-env-5q59hsdfos.ap-south-1a.lb.nimbuz.tech";
+    const host = window.location.hostname;
+    if (host !== "localhost" && host !== "127.0.0.1") {
+      return "";
     }
     return "http://127.0.0.1:5000";
   }
@@ -24,9 +25,6 @@ const getApiUrl = (): string => {
     if (url && url !== "undefined" && url !== "null" && url.trim() !== "") {
       return url.replace(/\/$/, "");
     }
-  }
-  if (process.env.NEXTAUTH_URL?.includes("nimbuz.tech")) {
-    return "https://charge-hub-backend-env-5q59hsdfos.ap-south-1a.lb.nimbuz.tech";
   }
   return "http://127.0.0.1:5000";
 };
@@ -65,6 +63,7 @@ const clearToken = () => {
     localStorage.removeItem("userEmail");
     localStorage.removeItem("userMobile");
     localStorage.removeItem("userId");
+    localStorage.removeItem("userRole");
     window.dispatchEvent(new Event("auth-expired"));
   }
 };
@@ -230,74 +229,46 @@ export const getStationById = async (id: string) => {
   return res.json();
 };
 
-// CREATE station
-export const createStation = async (data: any) => {
+const STATION_FIELDS = [
+  "name", "location", "district", "districtPin", "latitude", "longitude", "powerOutput", "ports",
+  "connectorType", "status", "basePricePerKwh", "convenienceFee", "tax", "ownerId", "simulated", "ocppPassword",
+] as const;
+
+/** Multipart body for station create/update. Sends every field that is set, including 0/false. */
+const stationFormData = (data: any) => {
+  const formData = new FormData();
+  for (const key of STATION_FIELDS) {
+    const v = data[key];
+    if (v === undefined || v === null || (typeof v === "string" && v.trim() === "" && key !== "ocppPassword")) continue;
+    formData.append(key, String(v));
+  }
+  if (data.dynamicPricing) formData.append("dynamicPricing", JSON.stringify(data.dynamicPricing));
+  if (data.imageFile) formData.append("image", data.imageFile);
+  return formData;
+};
+
+const multipartAuth = () => {
   const token = getToken();
   if (!token) throw new Error("Authentication required. Please log in again.");
+  return { Authorization: `Bearer ${token}` };
+};
 
-  const headers: any = { Authorization: `Bearer ${token}` };
-
-  const formData = new FormData();
-  formData.append("name", data.name);
-  formData.append("location", data.location);
-  if (data.latitude) formData.append("latitude", String(data.latitude));
-  if (data.longitude) formData.append("longitude", String(data.longitude));
-  if (data.district) formData.append("district", data.district);
-  formData.append("powerOutput", String(data.powerOutput));
-  formData.append("ports", String(data.ports));
-  formData.append("basePricePerKwh", String(data.basePricePerKwh || 0));
-  formData.append("convenienceFee", String(data.convenienceFee || 0));
-  formData.append("tax", String(data.tax || 0));
-  formData.append("districtPin", String(data.districtPin || "000"));
-
-  if (data.dynamicPricing) {
-    formData.append("dynamicPricing", JSON.stringify(data.dynamicPricing));
-  }
-
-  if (data.imageFile) {
-    formData.append("image", data.imageFile);
-  }
-
+// CREATE station
+export const createStation = async (data: any) => {
   const res = await fetch(`${BASE_URL}/stations`, {
     method: "POST",
-    headers,
-    body: formData,
+    headers: multipartAuth(),
+    body: stationFormData({ districtPin: "000", ...data }),
   });
   if (!res.ok) await handleAuthError(res);
   return res.json();
 };
 
 export const updateStation = async (id: string, data: any) => {
-  const token = getToken();
-  if (!token) throw new Error("Authentication required. Please log in again.");
-
-  const headers: any = { Authorization: `Bearer ${token}` };
-
-  const formData = new FormData();
-  if (data.name) formData.append("name", data.name);
-  if (data.location) formData.append("location", data.location);
-  if (data.latitude) formData.append("latitude", String(data.latitude));
-  if (data.longitude) formData.append("longitude", String(data.longitude));
-  if (data.district) formData.append("district", data.district);
-  if (data.powerOutput) formData.append("powerOutput", String(data.powerOutput));
-  if (data.ports) formData.append("ports", String(data.ports));
-  if (data.status) formData.append("status", data.status);
-  if (data.basePricePerKwh) formData.append("basePricePerKwh", String(data.basePricePerKwh));
-  if (data.convenienceFee) formData.append("convenienceFee", String(data.convenienceFee));
-  if (data.tax) formData.append("tax", String(data.tax));
-
-  if (data.dynamicPricing) {
-    formData.append("dynamicPricing", JSON.stringify(data.dynamicPricing));
-  }
-
-  if (data.imageFile) {
-    formData.append("image", data.imageFile);
-  }
-
   const res = await fetch(`${BASE_URL}/stations/${id}`, {
     method: "PUT",
-    headers,
-    body: formData,
+    headers: multipartAuth(),
+    body: stationFormData(data),
   });
   if (!res.ok) await handleAuthError(res);
   return res.json();
@@ -308,7 +279,7 @@ export const deleteStation = async (id: string) => {
     method: "DELETE",
     headers: authHeaders(),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(await parseErrorText(res));
   return res.json();
 };
 
@@ -327,13 +298,14 @@ export const getLiveSessions = async () => {
   return res.json();
 };
 
-export const startSession = async (stationId: string) => {
+/** Operator test start (admin/owner). Customers start from the mobile app after paying. */
+export const startSession = async (stationId: string, connectorId = 1) => {
   const res = await fetch(`${BASE_URL}/sessions/start`, {
     method: "POST",
     headers: authHeaders(),
-    body: JSON.stringify({ stationId }),
+    body: JSON.stringify({ stationId, connectorId }),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(await parseErrorText(res));
   return res.json();
 };
 
@@ -342,7 +314,7 @@ export const stopSession = async (sessionId: string) => {
     method: "POST",
     headers: authHeaders(),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(await parseErrorText(res));
   return res.json();
 };
 
@@ -374,6 +346,7 @@ export const resolveFault = async (faultId: string) => {
   const res = await fetch(`${BASE_URL}/faults/${faultId}`, {
     method: "PUT",
     headers: authHeaders(),
+    body: JSON.stringify({ status: "resolved" }),
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
@@ -387,10 +360,36 @@ export const getPayments = async () => {
   return res.json();
 };
 
-export const getUsers = async () => {
+// USERS (admin manages owners/admins; owners see customers who charged at their stations)
+export const getUsers = async (role?: string) => {
   if (!getToken()) return [];
-  const res = await fetch(`${BASE_URL}/users`, { headers: authHeaders() });
-  if (!res.ok) throw new Error("Failed to fetch users");
+  const qs = role ? `?role=${encodeURIComponent(role)}` : "";
+  const res = await fetch(`${BASE_URL}/users${qs}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(await parseErrorText(res));
+  return res.json();
+};
+
+export const createUser = async (data: { name: string; email: string; mobile?: string; password?: string; role: "owner" | "admin" }) => {
+  const res = await fetch(`${BASE_URL}/users`, { method: "POST", headers: authHeaders(), body: JSON.stringify(data) });
+  if (!res.ok) throw new Error(await parseErrorText(res));
+  return res.json();
+};
+
+export const updateUser = async (id: string, data: { role?: string; status?: "active" | "blocked"; name?: string; mobile?: string; password?: string }) => {
+  const res = await fetch(`${BASE_URL}/users/${id}`, { method: "PATCH", headers: authHeaders(), body: JSON.stringify(data) });
+  if (!res.ok) throw new Error(await parseErrorText(res));
+  return res.json();
+};
+
+export const getAuditLogs = async () => {
+  const res = await fetch(`${BASE_URL}/users/audit-logs`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(await parseErrorText(res));
+  return res.json();
+};
+
+export const retryRefund = async (paymentId: string) => {
+  const res = await fetch(`${BASE_URL}/payments/${paymentId}/retry-refund`, { method: "POST", headers: authHeaders() });
+  if (!res.ok) throw new Error(await parseErrorText(res));
   return res.json();
 };
 

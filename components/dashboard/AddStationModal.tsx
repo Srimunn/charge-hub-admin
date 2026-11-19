@@ -1,11 +1,14 @@
 "use client";
 import { useState, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Switch } from '@/components/ui/switch';
+import { isAdmin } from '@/lib/auth';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { createStation, updateStation, getImageUrl, getToken } from '@/services/api';
+import { createStation, updateStation, getImageUrl, getToken, getUsers } from '@/services/api';
 import { Plus, MapPin, Zap, Minus, UploadCloud, X, Trash2, Clock, Edit } from 'lucide-react';
 import {
   Dialog,
@@ -49,9 +52,9 @@ export const AddStationModal = ({
     district: editingStation?.district || '',
     powerOutput: editingStation?.powerOutput || 0, 
     ports: editingStation?.ports || 1, 
-    basePricePerKwh: editingStation?.basePricePerKwh || 15, 
-    convenienceFee: editingStation?.convenienceFee || 2, 
-    tax: editingStation?.tax || 20, 
+    basePricePerKwh: editingStation?.basePricePerKwh ?? 15,
+    convenienceFee: editingStation?.convenienceFee ?? 2,
+    tax: editingStation?.tax ?? 18,
     connectorType: editingStation?.connectorType || 'Type 2',
     districtPin: editingStation?.stationNumber?.substring(0, 3) || '' 
   });
@@ -64,6 +67,13 @@ export const AddStationModal = ({
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const admin = isAdmin();
+  // Admin-only: assign the owner, mark demo stations as simulated. Anyone: set the charger's OCPP password.
+  const [ownerId, setOwnerId] = useState<string>('');
+  const [simulated, setSimulated] = useState<boolean>(Boolean(editingStation?.simulated));
+  const [ocppPassword, setOcppPassword] = useState('');
+  const ownersQuery = useQuery({ queryKey: ['users', 'owner'], queryFn: () => getUsers('owner'), enabled: admin && open });
+  const feeOk = formData.convenienceFee === 0 || (formData.convenienceFee >= 2 && formData.convenienceFee <= 5);
 
   const addDynamicSlot = () => {
     setDynamicPricing([...dynamicPricing, { startTime: "18:00", endTime: "22:00", pricePerKwh: 20 }]);
@@ -116,7 +126,11 @@ export const AddStationModal = ({
     }
   };
 
-  const isFormValid = formData.name && formData.location && formData.latitude && formData.longitude && formData.powerOutput && formData.ports && (editingStation || formData.districtPin);
+  const isFormValid = formData.name && formData.location && formData.latitude && formData.longitude && formData.powerOutput && formData.ports && feeOk && (editingStation || formData.districtPin);
+  const extraFields = {
+    ...(admin ? { tax: formData.tax, simulated, ...(ownerId ? { ownerId } : {}) } : {}),
+    ...(ocppPassword ? { ocppPassword } : {}),
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -138,10 +152,10 @@ export const AddStationModal = ({
           ports: formData.ports,
           basePricePerKwh: formData.basePricePerKwh,
           convenienceFee: formData.convenienceFee,
-          tax: formData.tax,
           connectorType: formData.connectorType,
           dynamicPricing,
           imageFile,
+          ...extraFields,
         });
         toast({
           title: 'Station Updated Successfully',
@@ -158,11 +172,11 @@ export const AddStationModal = ({
           ports: formData.ports,
           basePricePerKwh: formData.basePricePerKwh,
           convenienceFee: formData.convenienceFee,
-          tax: formData.tax,
           districtPin: formData.districtPin,
           connectorType: formData.connectorType,
           dynamicPricing,
           imageFile,          // raw File → backend uploads to Cloudinary
+          ...extraFields,
         });
         toast({
           title: 'Station Created Successfully',
@@ -171,11 +185,14 @@ export const AddStationModal = ({
       }
 
       if (!editingStation) {
-        setFormData({ name: '', location: '', latitude: '', longitude: '', district: '', powerOutput: 0, ports: 1, basePricePerKwh: 15, convenienceFee: 2, tax: 20, connectorType: 'Type 2', districtPin: '' });
+        setFormData({ name: '', location: '', latitude: '', longitude: '', district: '', powerOutput: 0, ports: 1, basePricePerKwh: 15, convenienceFee: 2, tax: 18, connectorType: 'Type 2', districtPin: '' });
         setDynamicPricing([]);
         setImageFile(null);
         setImagePreview('');
+        setOwnerId('');
+        setSimulated(false);
       }
+      setOcppPassword('');
       setOpen(false);
       onStationAdded();
     } catch (err: any) {
@@ -335,12 +352,13 @@ export const AddStationModal = ({
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="convenienceFee">Conv. Fee (₹)</Label>
-                    <Input id="convenienceFee" type="number" min="2" max="5" step="0.5" required value={formData.convenienceFee} onChange={e => setFormData(f => ({...f, convenienceFee: Number(e.target.value)}))} className="focus:ring-2 focus:ring-primary/50" />
-                    <p className="text-xs text-muted-foreground ml-1">Range: ₹2 - ₹5</p>
+                    <Input id="convenienceFee" type="number" min="0" max="5" step="0.5" required value={formData.convenienceFee} onChange={e => setFormData(f => ({...f, convenienceFee: Number(e.target.value)}))} className="focus:ring-2 focus:ring-primary/50" />
+                    <p className={`text-xs ml-1 ${feeOk ? 'text-muted-foreground' : 'text-destructive'}`}>₹0, or ₹2 to ₹5</p>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="tax">Tax/Surcharge (₹)</Label>
-                    <Input id="tax" type="number" step="0.5" value={formData.tax} onChange={e => setFormData(f => ({...f, tax: Number(e.target.value)}))} className="focus:ring-2 focus:ring-primary/50" />
+                    <Label htmlFor="tax">GST (%)</Label>
+                    <Input id="tax" type="number" min="0" max="28" step="1" disabled={!admin} value={formData.tax} onChange={e => setFormData(f => ({...f, tax: Number(e.target.value)}))} className="focus:ring-2 focus:ring-primary/50" />
+                    <p className="text-xs text-muted-foreground ml-1">{admin ? 'On energy + fee' : 'Set by the administrator'}</p>
                   </div>
                 </div>
 
@@ -383,6 +401,42 @@ export const AddStationModal = ({
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Ownership & charger connection */}
+              <div className="space-y-4 border-t pt-4">
+                <h4 className="font-semibold text-lg">Charger connection</h4>
+                {admin && (
+                  <div className="space-y-2">
+                    <Label>Station owner</Label>
+                    <Select value={ownerId || '__keep'} onValueChange={(v) => setOwnerId(v === '__keep' ? '' : v)}>
+                      <SelectTrigger><SelectValue placeholder="Choose owner" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__keep">{editingStation ? 'Keep current owner' : 'Me (administrator)'}</SelectItem>
+                        {((ownersQuery.data ?? []) as any[]).map((o) => (
+                          <SelectItem key={o._id} value={o._id}>{o.name} · {o.email}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">The owner sees this station, its sessions and revenue.</p>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor="ocppPassword">Charger password (OCPP Basic Auth)</Label>
+                  <Input id="ocppPassword" type="password" autoComplete="new-password" placeholder={editingStation?.ocppPasswordSet ? 'Set – leave empty to keep it' : 'Optional'} value={ocppPassword} onChange={(e) => setOcppPassword(e.target.value)} />
+                  <p className="text-xs text-muted-foreground">
+                    Charger URL: <span className="font-mono">wss://&lt;api-domain&gt;/ocpp/{editingStation?.stationNumber || '<station number>'}</span>. If a password is set, the charger must send it.
+                  </p>
+                </div>
+                {admin && (
+                  <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                    <div>
+                      <Label htmlFor="simulated">Demo station (simulated charger)</Label>
+                      <p className="text-xs text-muted-foreground">A built-in simulator acts as the charger. Turn off for real hardware.</p>
+                    </div>
+                    <Switch id="simulated" checked={simulated} onCheckedChange={setSimulated} />
+                  </div>
+                )}
               </div>
 
               {/* Image Upload Drag Drop */}

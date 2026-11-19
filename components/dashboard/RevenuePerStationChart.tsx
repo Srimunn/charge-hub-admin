@@ -1,24 +1,16 @@
 "use client";
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { revenuePerStationData } from '@/data/mockData';
 import { IndianRupee } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
-import { getDashboardKPIs, getStations } from '@/services/api';
+import { useAnalytics, shortName } from '@/hooks/use-analytics';
 
 export function RevenuePerStationChart() {
-  const { data: kpiDataRaw } = useQuery({ queryKey: ['dashboardKPIs'], queryFn: getDashboardKPIs, refetchInterval: 5000 });
-  const { data: stations } = useQuery({ queryKey: ['stations'], queryFn: getStations, refetchInterval: 10000 });
-
-  const kpiData: any = kpiDataRaw || {};
-  const hasData = (kpiData.totalRevenue || 0) > 0;
-  
-  const chartData = (stations && stations.length > 0)
-    ? stations.map((s: any) => ({
-        name: s.name.split(' ')[0],
-        revenue: hasData ? (s.totalRevenue || Math.floor(Math.random() * 500) + 100) : 0
-      })).slice(0, 6)
-    : revenuePerStationData.map(d => ({ ...d, revenue: 0 }));
+  const { data } = useAnalytics('revenue', 'last30');
+  const chartData = [...((data as any)?.revenueByStation || [])]
+    .sort((a: any, b: any) => b.revenue - a.revenue)
+    .slice(0, 6)
+    .map((d: any) => ({ name: shortName(d.name), revenue: d.revenue }));
+  const hasData = chartData.some((d: any) => d.revenue > 0);
 
   return (
     <Card className="relative overflow-hidden w-full border-y-0 border-r-0 border-l-[6px] border-blue-600 bg-gradient-to-br from-blue-50/80 via-white to-sky-50/30 dark:from-blue-950/20 dark:via-slate-900 dark:to-slate-900 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200 ease-in-out animate-fade-in-up" style={{ animationDelay: '0.4s' }}>
@@ -26,7 +18,7 @@ export function RevenuePerStationChart() {
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-base font-bold text-slate-900 dark:text-slate-100">Revenue per Station</CardTitle>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">Top performing stations</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">Top stations, last 30 days</p>
           </div>
           <div className={`flex items-center gap-1.5 ${hasData ? 'text-sky-700 bg-sky-100 dark:bg-sky-950 dark:text-sky-300' : 'text-slate-500 bg-slate-100 dark:bg-slate-800'} px-2.5 py-1 rounded-full border border-sky-200/50 dark:border-sky-800/50`}>
             <IndianRupee className="w-3.5 h-3.5 text-sky-600" />

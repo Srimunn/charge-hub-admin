@@ -3,41 +3,37 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Candidate paths for .env configuration
+// Load the first .env found (local development). On Railway variables come from the service.
 const candidatePaths = [
-  path.join(__dirname, "../.env"),             // backend/.env
-  path.join(__dirname, "../../.env"),            // root/.env
-  path.join(process.cwd(), ".env"),              // current working directory/.env
-  path.join(process.cwd(), "backend/.env")       // cwd/backend/.env
+  path.join(__dirname, "../.env"), // backend/.env
+  path.join(__dirname, "../../.env"), // repo root .env
+  path.join(process.cwd(), ".env"),
 ];
-
-let loadedPath = null;
 for (const envPath of candidatePaths) {
-  if (fs.existsSync(envPath)) {
-    const result = dotenv.config({ path: envPath });
-    if (!result.error) {
-      loadedPath = envPath;
-      break;
-    }
+  if (fs.existsSync(envPath) && !dotenv.config({ path: envPath, quiet: true }).error) break;
+}
+
+// All business logic (pricing windows, report grouping) runs in Indian time.
+if (!process.env.TZ) process.env.TZ = "Asia/Kolkata";
+
+const isProduction = process.env.NODE_ENV === "production" || Boolean(process.env.RAILWAY_ENVIRONMENT_NAME);
+
+if (!process.env.DATABASE_URL && !isProduction) {
+  process.env.DATABASE_URL = "postgres://postgres:postgres@127.0.0.1:5432/charge_hub";
+  console.log("ℹ️ DATABASE_URL not set – using local default postgres://127.0.0.1:5432/charge_hub");
+}
+
+if (isProduction) {
+  const missing = ["DATABASE_URL", "JWT_SECRET"].filter((k) => !process.env[k]);
+  if (missing.length) console.error(`❌ Missing required environment variables: ${missing.join(", ")}`);
+  if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
+    console.warn("⚠️ JWT_SECRET is shorter than 32 characters – use a long random value in production.");
   }
+  if (process.env.PAYMENTS_DEMO_MODE === "true") console.warn("⚠️ PAYMENTS_DEMO_MODE is ON – demo payments are accepted.");
+  if (process.env.OTP_DEBUG === "true") console.warn("⚠️ OTP_DEBUG is ON – OTPs are returned in API responses.");
 }
 
-if (!loadedPath) {
-  dotenv.config();
-}
-
-// Fallback logic for local development if MONGO_URI is missing
-if (!process.env.MONGO_URI) {
-  const isProduction = process.env.NODE_ENV === "production" || process.env.NIMBUZ_ENV;
-  if (!isProduction) {
-    process.env.MONGO_URI = "mongodb://127.0.0.1:27017/ev_chargings";
-    console.log("ℹ️ [System] MONGO_URI not set. Using local fallback: mongodb://127.0.0.1:27017/ev_chargings");
-  } else {
-    console.warn("⚠️ [System] WARNING: MONGO_URI environment variable is missing in production deployment!");
-  }
-}
-
+export const IS_PRODUCTION = isProduction;
 export default process.env;

@@ -1,16 +1,14 @@
 "use client";
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { energyUsageData } from '@/data/mockData';
 import { TrendingUp } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
-import { getDashboardKPIs } from '@/services/api';
+import { useAnalytics } from '@/hooks/use-analytics';
 
 export function EnergyUsageChart() {
-  const { data } = useQuery({ queryKey: ['dashboardKPIs'], queryFn: getDashboardKPIs, refetchInterval: 5000 });
-  const kpiData: any = data || {};
-  const hasData = (kpiData.totalEnergy || 0) > 0 || (kpiData.activeSessions || 0) > 0;
-  const chartData = hasData ? energyUsageData : energyUsageData.map(d => ({ ...d, usage: 0 }));
+  const { data } = useAnalytics('sessions', 'today');
+  const chartData = ((data as any)?.energyTrends || []).map((d: any) => ({ time: d.label, usage: d.energy }));
+  const total = chartData.reduce((sum: number, d: any) => sum + (d.usage || 0), 0);
+  const hasData = total > 0;
 
   return (
     <Card className="relative overflow-hidden w-full border-y-0 border-r-0 border-l-[6px] border-blue-600 bg-gradient-to-br from-blue-50/80 via-white to-indigo-50/30 dark:from-blue-950/20 dark:via-slate-900 dark:to-slate-900 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200 ease-in-out animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
@@ -18,11 +16,11 @@ export function EnergyUsageChart() {
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-base font-bold text-slate-900 dark:text-slate-100">Energy Usage Today</CardTitle>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">Hourly consumption trend (kWh)</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">Energy delivered through the day (kWh)</p>
           </div>
           <div className={`flex items-center gap-1.5 ${hasData ? 'text-blue-700 bg-blue-100 dark:bg-blue-950 dark:text-blue-300' : 'text-slate-500 bg-slate-100 dark:bg-slate-800'} px-2.5 py-1 rounded-full border border-blue-200/50 dark:border-blue-800/50`}>
             <TrendingUp className="w-3.5 h-3.5 text-blue-600" />
-            <span className="text-xs font-bold">{hasData ? '+8.2%' : '0.0%'}</span>
+            <span className="text-xs font-bold">{total.toFixed(1)} kWh</span>
           </div>
         </div>
       </CardHeader>
