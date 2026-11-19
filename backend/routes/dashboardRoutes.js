@@ -1,11 +1,10 @@
 import express from "express";
-import Station from "../models/Station.js";
-import Fault from "../models/Fault.js";
-import Transaction from "../models/Transaction.js";
-import Session from "../models/Session.js";
-import { protect } from "../middleware/authMiddleware.js";
+import { and, eq, gte, ilike, inArray, lte } from "drizzle-orm";
+import { db, schema, round2 } from "../db/index.js";
+import { protect, operatorOnly } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
+router.use(protect, operatorOnly);
 
 // Helper to parse date filters
 const parseDateRange = (dateFilter, fromDate, toDate) => {
@@ -73,132 +72,122 @@ const parseDateRange = (dateFilter, fromDate, toDate) => {
 };
 
 // Helper for dynamic grouping (Hourly, Daily, Monthly)
-const getTrendData = (items, dateField, valueField, start, end) => {
-  const diffMs = end.getTime() - start.getTime();
-  const diffDays = diffMs / (1000 * 60 * 60 * 24);
+const getTrendData = (items, dateField, valueField, rangeStart, rangeEnd) => {
+  // Clamp open-ended ranges ("all time") to the data actually present (max 24 months).
+  const now = new Date();
+  let start = new Date(rangeStart);
+  let end = new Date(Math.min(rangeEnd.getTime(), now.getTime() + 60 * 1000));
+  if (now.getTime() - start.getTime() > 2 * 365 * 86400000) {
+    const times = items.map((i) => new Date(i[dateField]).getTime()).filter(Number.isFinite);
+    const earliest = times.length ? Math.min(...times) : now.getTime() - 30 * 86400000;
+    start = new Date(Math.max(earliest, now.getTime() - 730 * 86400000));
+  }
+  if (end <= start) end = new Date(start.getTime() + 86400000);
+  const diffDays = (end.getTime() - start.getTime()) / 86400000;
 
-  const formatHour = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const formatDateStr = (d) => d.toLocaleDateString([], { month: 'short', day: '2-digit' });
-  const formatMonth = (d) => d.toLocaleDateString([], { month: 'short', year: '2-digit' });
-
-  let groupFn = formatDateStr;
-  let incrementHours = 0;
-  let incrementDays = 0;
-  let incrementMonths = 0;
-
+  const pad = (n) => String(n).padStart(2, "0");
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  let groupFn;
+  let step;
   if (diffDays <= 2) {
-    groupFn = formatHour;
-    incrementHours = 2; // group by 2 hours for spacing
+    // 2-hour buckets
+    groupFn = (d) => `${diffDays > 1.01 ? `${pad(d.getDate())} ${MONTHS[d.getMonth()]} ` : ""}${pad(d.getHours() - (d.getHours() % 2))}:00`;
+    step = (d) => d.setHours(d.getHours() + 2);
+    start.setMinutes(0, 0, 0);
+    start.setHours(start.getHours() - (start.getHours() % 2));
   } else if (diffDays > 60) {
-    groupFn = formatMonth;
-    incrementMonths = 1;
+    groupFn = (d) => `${MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
+    step = (d) => d.setMonth(d.getMonth() + 1);
+    start = new Date(start.getFullYear(), start.getMonth(), 1);
   } else {
-    groupFn = formatDateStr;
-    incrementDays = 1;
+    groupFn = (d) => `${MONTHS[d.getMonth()]} ${pad(d.getDate())}`;
+    step = (d) => d.setDate(d.getDate() + 1);
+    start = new Date(start.getFullYear(), start.getMonth(), start.getDate());
   }
 
   const slots = new Map();
-  let curr = new Date(start);
-  while (curr <= end) {
-    slots.set(groupFn(curr), 0);
-    if (incrementHours > 0) {
-      curr.setHours(curr.getHours() + incrementHours);
-    } else if (incrementMonths > 0) {
-      curr.setMonth(curr.getMonth() + incrementMonths);
-    } else {
-      curr.setDate(curr.getDate() + incrementDays);
-    }
-  }
+  for (const curr = new Date(start); curr <= end && slots.size < 400; step(curr)) slots.set(groupFn(curr), 0);
 
-  items.forEach(item => {
+  for (const item of items) {
     const d = new Date(item[dateField]);
     const label = groupFn(d);
-    if (slots.has(label)) {
-      slots.set(label, slots.get(label) + (Number(item[valueField]) || 0));
-    }
-  });
-
-  return Array.from(slots.entries()).map(([label, val]) => ({
-    label,
-    value: Number(val.toFixed(2))
-  }));
+    if (!slots.has(label)) continue;
+    const v = valueField ? Number(item[valueField]) || 0 : 1;
+    slots.set(label, slots.get(label) + v);
+  }
+  return Array.from(slots.entries()).map(([label, val]) => ({ label, value: Number(val.toFixed(2)) }));
 };
 
-// Helper to query filtered stations
+// Stations visible to this operator (admin: all), with optional dashboard filters
 const getFilteredStationIds = async (req) => {
-  const userId = req.user.id;
   const { stationId, chargerType, status, searchQuery } = req.query;
+  const S = schema.stations;
+  const conds = [];
+  if (req.user.role !== "admin") conds.push(eq(S.userId, req.user.id));
+  if (stationId) conds.push(eq(S.id, String(stationId)));
+  if (chargerType) conds.push(eq(S.connectorType, String(chargerType)));
+  if (status && ["online", "offline", "maintenance"].includes(status)) conds.push(eq(S.status, status));
+  if (searchQuery) conds.push(ilike(S.name, `%${String(searchQuery).replace(/[\\%_]/g, (c) => "\\" + c)}%`));
+  const stations = await (conds.length ? db.select().from(S).where(and(...conds)) : db.select().from(S));
+  return { stations: stations.map((s) => ({ ...s, _id: s.id })), stationIds: stations.map((s) => s.id) };
+};
 
-  const query = { userId };
+const sessionsIn = async (stationIds, start, end, status) => {
+  if (stationIds.length === 0) return [];
+  const C = schema.chargingSessions;
+  const conds = [inArray(C.stationId, stationIds), gte(C.startTime, start), lte(C.startTime, end)];
+  if (status) conds.push(eq(C.status, String(status)));
+  const rows = await db.select().from(C).where(and(...conds));
+  return rows.map((r) => ({ ...r, _id: r.id }));
+};
 
-  if (stationId) {
-    query._id = stationId;
-  }
-  if (chargerType) {
-    query.connectorType = chargerType;
-  }
-  if (status) {
-    // If status is online/offline/maintenance, filter stations
-    if (["online", "offline", "maintenance"].includes(status)) {
-      query.status = status;
-    }
-  }
-  if (searchQuery) {
-    query.name = { $regex: searchQuery, $options: "i" };
-  }
-
-  const stations = await Station.find(query).lean();
-  return {
-    stations,
-    stationIds: stations.map(s => s._id)
-  };
+const faultsIn = async (stationIds, start, end) => {
+  if (stationIds.length === 0) return [];
+  const F = schema.faults;
+  const rows = await db.select().from(F).where(and(inArray(F.stationId, stationIds), gte(F.createdAt, start), lte(F.createdAt, end)));
+  return rows.map((r) => ({ ...r, _id: r.id }));
 };
 
 // GET DASHBOARD KPIS (main dashboard tab)
-router.get("/kpis", protect, async (req, res) => {
+router.get("/kpis", async (req, res) => {
   try {
-    const userId = req.user.id;
-    const stations = await Station.find({ userId });
-    const stationIds = stations.map((s) => s._id);
+    const { stations, stationIds } = await getFilteredStationIds({ ...req, query: {} });
+    const all = await sessionsIn(stationIds, new Date(0), new Date(Date.now() + 86400000));
+    const activeTx = all.filter((t) => t.status === "active" || t.status === "FAULT_PAUSED");
+    const completed = all.filter((t) => t.status === "completed");
+    const activeFaults = stationIds.length
+      ? (await db.select({ id: schema.faults.id }).from(schema.faults).where(and(inArray(schema.faults.stationId, stationIds), eq(schema.faults.status, "active")))).length
+      : 0;
 
-    const transactions = await Transaction.find({ stationId: { $in: stationIds } });
-    const activeTx = transactions.filter((t) => t.status === "active");
-    const completedTx = transactions.filter((t) => t.status === "completed");
-    const faults = await Fault.find({ stationId: { $in: stationIds }, status: "active" });
-
-    const totalRevenue = completedTx.reduce((sum, t) => sum + (t.cost || 0), 0);
-    const totalEnergyCost = completedTx.reduce((sum, t) => sum + ((t.energyUsed || 0) * (t.appliedPrice || 0)), 0);
-    const totalConvenienceFee = completedTx.reduce((sum, t) => sum + (t.convenienceFee || 0), 0);
-    const totalTax = completedTx.reduce((sum, t) => sum + (t.tax || 0), 0);
-
-    const activeSessions = activeTx.length;
-    const totalEnergy = completedTx.reduce((sum, t) => sum + (t.energyUsed || 0), 0);
-    const co2Saved = totalEnergy * 0.4 / 1000;
-    const onlineStations = stations.filter((s) => s.status === "online").length;
-    const activeFaults = faults.length;
+    const sum = (arr, f) => round2(arr.reduce((acc, t) => acc + (Number(f(t)) || 0), 0));
+    const totalEnergy = sum(completed, (t) => t.energyUsed);
+    const onlineStations = stations.filter((s) => ["online", "charging"].includes(s.status)).length;
 
     res.json({
-      totalRevenue,
-      totalEnergyCost,
-      totalConvenienceFee,
-      totalTax,
-      activeSessions,
+      totalRevenue: sum(completed, (t) => t.cost),
+      totalEnergyCost: sum(completed, (t) => (t.energyUsed || 0) * (t.appliedPrice || 0)),
+      totalConvenienceFee: sum(completed, (t) => t.convenienceFee),
+      totalTax: sum(completed, (t) => t.tax),
+      activeSessions: activeTx.length,
+      totalSessions: all.length,
       totalEnergy,
-      co2Saved,
+      // ~0.82 kg CO2/kWh Indian grid vs petrol equivalent is complex; keep the existing 0.4 kg/kWh factor (tonnes)
+      co2Saved: round2((totalEnergy * 0.4) / 1000),
       onlineStations,
       totalStations: stations.length,
       activeFaults,
       maintenanceStations: stations.filter((s) => s.status === "maintenance").length,
-      idleStations: Math.max(0, onlineStations - activeSessions),
+      offlineStations: stations.filter((s) => s.status === "offline").length,
+      idleStations: Math.max(0, onlineStations - activeTx.length),
     });
   } catch (error) {
-    console.error("Dashboard KPI Error:", error);
+    console.error("Dashboard KPI Error:", error.message);
     res.status(500).json({ error: "Server Error" });
   }
 });
 
 // GET COMPREHENSIVE REPORTS
-router.get("/reports", protect, async (req, res) => {
+router.get("/reports", async (req, res) => {
   try {
     const { dateFilter, fromDate, toDate, sessionStatus } = req.query;
     const { start, end } = parseDateRange(dateFilter, fromDate, toDate);
@@ -236,12 +225,8 @@ router.get("/reports", protect, async (req, res) => {
       });
     }
 
-    const sessionQuery = { stationId: { $in: stationIds }, startTime: { $gte: start, $lte: end } };
-    if (sessionStatus) {
-      sessionQuery.status = sessionStatus;
-    }
-    const sessions = await Session.find(sessionQuery).lean();
-    const faults = await Fault.find({ stationId: { $in: stationIds }, createdAt: { $gte: start, $lte: end } }).lean();
+    const sessions = await sessionsIn(stationIds, start, end, sessionStatus);
+    const faults = await faultsIn(stationIds, start, end);
 
     // Calculate KPIs
     const totalRevenueMonth = sessions.reduce((sum, s) => sum + (s.cost || 0), 0);
@@ -254,7 +239,7 @@ router.get("/reports", protect, async (req, res) => {
 
     // Fault count and downtime
     const totalFaultsMonth = faults.length;
-    const resolvedFaults = faults.filter(f => ["resolved", "RESOLVED"].includes(f.status));
+    const resolvedFaults = faults.filter(f => f.status === "resolved");
     
     let avgResolutionHours = 0;
     if (resolvedFaults.length > 0) {
@@ -290,7 +275,7 @@ router.get("/reports", protect, async (req, res) => {
         return sum + (endS.getTime() - new Date(s.startTime).getTime());
       }, 0);
       
-      const totalPeriodMs = Math.max(1000, end.getTime() - start.getTime());
+      const totalPeriodMs = Math.max(3600000, Math.min(end.getTime(), Date.now()) - Math.max(start.getTime(), new Date(station.createdAt).getTime()));
       let utilization = Number(((totalChargeTimeMs / totalPeriodMs) * 100).toFixed(1));
       utilization = Math.min(100, Math.max(0, utilization));
       return {
@@ -383,7 +368,7 @@ router.get("/reports", protect, async (req, res) => {
     }).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
 
     // Fault Trends
-    const faultTrends = getTrendData(faults, "createdAt", "_id", start, end).map(d => ({ label: d.label, count: d.value }));
+    const faultTrends = getTrendData(faults, "createdAt", null, start, end).map(d => ({ label: d.label, count: d.value }));
 
     res.json({
       kpis: {
@@ -409,7 +394,7 @@ router.get("/reports", protect, async (req, res) => {
         revenueByChargerType,
         peakUsageHours: hours,
         topPerformingStations,
-        sessionGrowth: getTrendData(sessions, "startTime", "_id", start, end).map(d => ({ label: d.label, sessions: d.value })),
+        sessionGrowth: getTrendData(sessions, "startTime", null, start, end).map(d => ({ label: d.label, sessions: d.value })),
         faultTrends,
         downtimeTrends
       }
@@ -421,7 +406,7 @@ router.get("/reports", protect, async (req, res) => {
 });
 
 // GET /analytics/revenue
-router.get("/analytics/revenue", protect, async (req, res) => {
+router.get("/analytics/revenue", async (req, res) => {
   try {
     const { dateFilter, fromDate, toDate } = req.query;
     const { start, end } = parseDateRange(dateFilter, fromDate, toDate);
@@ -431,7 +416,7 @@ router.get("/analytics/revenue", protect, async (req, res) => {
       return res.json({ revenueTrends: [], revenueByStation: [], revenueByChargerType: [] });
     }
 
-    const sessions = await Session.find({ stationId: { $in: stationIds }, startTime: { $gte: start, $lte: end } }).lean();
+    const sessions = await sessionsIn(stationIds, start, end);
 
     const revenueTrends = getTrendData(sessions, "startTime", "cost", start, end);
 
@@ -465,19 +450,19 @@ router.get("/analytics/revenue", protect, async (req, res) => {
 });
 
 // GET /analytics/sessions
-router.get("/analytics/sessions", protect, async (req, res) => {
+router.get("/analytics/sessions", async (req, res) => {
   try {
     const { dateFilter, fromDate, toDate } = req.query;
     const { start, end } = parseDateRange(dateFilter, fromDate, toDate);
     const { stationIds } = await getFilteredStationIds(req);
 
     if (stationIds.length === 0) {
-      return res.json({ sessionTrends: [], peakUsageHours: [] });
+      return res.json({ sessionTrends: [], energyTrends: [], peakUsageHours: [] });
     }
 
-    const sessions = await Session.find({ stationId: { $in: stationIds }, startTime: { $gte: start, $lte: end } }).lean();
+    const sessions = await sessionsIn(stationIds, start, end);
 
-    const sessionTrends = getTrendData(sessions, "startTime", "_id", start, end).map(d => ({ label: d.label, count: d.value }));
+    const sessionTrends = getTrendData(sessions, "startTime", null, start, end).map(d => ({ label: d.label, count: d.value }));
 
     const hours = Array.from({ length: 24 }, (_, i) => ({ hour: `${i.toString().padStart(2, '0')}:00`, count: 0 }));
     sessions.forEach(s => {
@@ -485,7 +470,9 @@ router.get("/analytics/sessions", protect, async (req, res) => {
       hours[hr].count += 1;
     });
 
-    res.json({ sessionTrends, peakUsageHours: hours });
+    const energyTrends = getTrendData(sessions, "startTime", "energyUsed", start, end).map(d => ({ label: d.label, energy: d.value }));
+
+    res.json({ sessionTrends, energyTrends, peakUsageHours: hours });
   } catch (error) {
     console.error("Analytics Sessions Error:", error);
     res.status(500).json({ error: "Server Error" });
@@ -493,7 +480,7 @@ router.get("/analytics/sessions", protect, async (req, res) => {
 });
 
 // GET /analytics/faults
-router.get("/analytics/faults", protect, async (req, res) => {
+router.get("/analytics/faults", async (req, res) => {
   try {
     const { dateFilter, fromDate, toDate } = req.query;
     const { start, end } = parseDateRange(dateFilter, fromDate, toDate);
@@ -503,9 +490,9 @@ router.get("/analytics/faults", protect, async (req, res) => {
       return res.json({ faultTrends: [], faultsByType: [], downtimeTrends: [] });
     }
 
-    const faults = await Fault.find({ stationId: { $in: stationIds }, createdAt: { $gte: start, $lte: end } }).lean();
+    const faults = await faultsIn(stationIds, start, end);
 
-    const faultTrends = getTrendData(faults, "createdAt", "_id", start, end).map(d => ({ label: d.label, count: d.value }));
+    const faultTrends = getTrendData(faults, "createdAt", null, start, end).map(d => ({ label: d.label, count: d.value }));
 
     const faultTypeCounts = {};
     faults.forEach(f => {
@@ -537,7 +524,7 @@ router.get("/analytics/faults", protect, async (req, res) => {
 });
 
 // GET /analytics/utilization
-router.get("/analytics/utilization", protect, async (req, res) => {
+router.get("/analytics/utilization", async (req, res) => {
   try {
     const { dateFilter, fromDate, toDate } = req.query;
     const { start, end } = parseDateRange(dateFilter, fromDate, toDate);
@@ -547,7 +534,7 @@ router.get("/analytics/utilization", protect, async (req, res) => {
       return res.json({ stationUtilization: [], topPerformingStations: [] });
     }
 
-    const sessions = await Session.find({ stationId: { $in: stationIds }, startTime: { $gte: start, $lte: end } }).lean();
+    const sessions = await sessionsIn(stationIds, start, end);
 
     const stationUtilization = stations.map(station => {
       const stationSessions = sessions.filter(s => String(s.stationId) === String(station._id));
@@ -556,7 +543,7 @@ router.get("/analytics/utilization", protect, async (req, res) => {
         return sum + (endS.getTime() - new Date(s.startTime).getTime());
       }, 0);
       
-      const totalPeriodMs = Math.max(1000, end.getTime() - start.getTime());
+      const totalPeriodMs = Math.max(3600000, Math.min(end.getTime(), Date.now()) - Math.max(start.getTime(), new Date(station.createdAt).getTime()));
       let utilization = Number(((totalChargeTimeMs / totalPeriodMs) * 100).toFixed(1));
       utilization = Math.min(100, Math.max(0, utilization));
       return {

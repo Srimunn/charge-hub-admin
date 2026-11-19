@@ -1,10 +1,8 @@
 "use client";
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
-import { stationUtilizationData } from '@/data/mockData';
 import { Radio } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
-import { getDashboardKPIs, getStations } from '@/services/api';
+import { useAnalytics, shortName } from '@/hooks/use-analytics';
 
 const BAR_GRADIENTS = [
   { id: 'gradBlue0', start: '#2563eb', end: '#1d4ed8' },
@@ -16,19 +14,12 @@ const BAR_GRADIENTS = [
 ];
 
 export function StationUtilizationChart() {
-  const { data: kpiDataRaw } = useQuery({ queryKey: ['dashboardKPIs'], queryFn: getDashboardKPIs, refetchInterval: 5000 });
-  const { data: stations } = useQuery({ queryKey: ['stations'], queryFn: getStations, refetchInterval: 10000 });
-  
-  const kpiData: any = kpiDataRaw || {};
-  const hasData = (kpiData.activeSessions || 0) > 0;
-  
-  // Generate chart data from real stations if available, otherwise use mock structure with 0s
-  const chartData = (stations && stations.length > 0) 
-    ? stations.map((s: any) => ({
-        name: s.name.split(' ')[0],
-        utilization: hasData ? (Math.floor(Math.random() * 40) + 40) : 0
-      })).slice(0, 6)
-    : stationUtilizationData.map(d => ({ ...d, utilization: 0 }));
+  const { data } = useAnalytics('utilization', 'last7');
+  const chartData = [...((data as any)?.stationUtilization || [])]
+    .sort((a: any, b: any) => b.utilization - a.utilization)
+    .slice(0, 6)
+    .map((d: any) => ({ name: shortName(d.name), utilization: d.utilization }));
+  const hasData = chartData.some((d: any) => d.utilization > 0);
 
   return (
     <Card className="relative overflow-hidden w-full border-y-0 border-r-0 border-l-[6px] border-sky-500 bg-gradient-to-br from-sky-50/80 via-white to-blue-50/30 dark:from-sky-950/20 dark:via-slate-900 dark:to-slate-900 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200 ease-in-out animate-fade-in-up" style={{ animationDelay: '0.6s' }}>
@@ -36,11 +27,11 @@ export function StationUtilizationChart() {
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-base font-bold text-slate-900 dark:text-slate-100">Station Utilization</CardTitle>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">Current usage by station</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">Share of time charging, last 7 days</p>
           </div>
           <div className={`flex items-center gap-1.5 ${hasData ? 'text-sky-700 bg-sky-100 dark:bg-sky-950 dark:text-sky-300' : 'text-slate-500 bg-slate-100 dark:bg-slate-800'} px-2.5 py-1 rounded-full border border-sky-200/50 dark:border-sky-800/50`}>
             <Radio className={`w-3.5 h-3.5 ${hasData ? 'animate-pulse text-sky-600' : ''}`} />
-            <span className="text-xs font-bold">{hasData ? 'Live' : 'Offline'}</span>
+            <span className="text-xs font-bold">{hasData ? 'Active' : 'No usage'}</span>
           </div>
         </div>
       </CardHeader>

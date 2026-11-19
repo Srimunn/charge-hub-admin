@@ -1,29 +1,24 @@
 import "./config/env.js";
 import crypto from "crypto";
-if (!global.crypto) {
-  global.crypto = crypto;
-}
+if (!global.crypto) global.crypto = crypto;
 
 import path from "path";
 import fs from "fs";
+import http from "http";
 import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-
 import express from "express";
-import mongoose from "mongoose";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import { Server } from "socket.io";
+import { inArray, lt, sql } from "drizzle-orm";
 
-// Import models
-import User from "./models/User.js";
-import Station from "./models/Station.js";
-import Session from "./models/Session.js";
-import Fault from "./models/Fault.js";
-import Payment from "./models/Payment.js";
+import { db, schema, pool, connectDb, isDbReady } from "./db/index.js";
+import { verifyToken, loadUser } from "./middleware/authMiddleware.js";
+import { setIo } from "./services/realtime.js";
+import OcppCentralSystem from "./services/ocppCentralSystem.js";
+import { refundStalePayments } from "./controllers/paymentController.js";
 
-// Import routes
 import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import stationRoutes from "./routes/stationRoutes.js";
@@ -32,221 +27,181 @@ import faultRoutes from "./routes/faultRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
-import { setIoInstance } from "./services/notificationService.js";
 
-import http from "http";
-import { Server } from "socket.io";
-import OcppCentralSystem from "./services/ocppCentralSystem.js";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+fs.mkdirSync(path.join(__dirname, "uploads"), { recursive: true });
 
-// Ensure uploads directory exists to avoid ENOENT when saving files
-try {
-  fs.mkdirSync(path.join(__dirname, "uploads"), { recursive: true });
-  console.log("✅ Ensured uploads directory exists");
-} catch (e) {
-  console.warn("Could not create uploads directory:", e?.message || e);
+// ── CORS ──────────────────────────────────────────────────────────────────────
+// CORS_ORIGIN accepts a comma-separated list, e.g. https://operator.magnertia.in
+const allowedOrigins = new Set(["http://localhost:3000", "http://127.0.0.1:3000"]);
+for (const o of (process.env.CORS_ORIGIN || "").split(",")) {
+  const trimmed = o.trim().replace(/\/$/, "");
+  if (trimmed) allowedOrigins.add(trimmed);
 }
+const originAllowed = (origin) => !origin || allowedOrigins.has("*") || allowedOrigins.has(origin);
+console.log("✅ CORS allowed origins:", [...allowedOrigins]);
 
 const app = express();
+app.set("trust proxy", 1); // Railway / reverse proxy: real client IP for rate limiting
+app.disable("x-powered-by");
 const server = http.createServer(app);
+
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
+  cors: { origin: (origin, cb) => cb(null, originAllowed(origin)), methods: ["GET", "POST"], credentials: true },
+});
+setIo(io);
+
+// Socket auth: optional JWT → private rooms. Unauthenticated sockets only get public station events.
+io.use(async (socket, next) => {
+  const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+  if (token) {
+    try {
+      const decoded = verifyToken(String(token));
+      const user = await loadUser(decoded.id);
+      if (user && user.status !== "blocked") socket.data.user = user;
+    } catch {
+      /* invalid token → treat as anonymous */
+    }
   }
+  next();
 });
 
-// Link notification service with Socket.io instance
-setIoInstance(io);
+io.on("connection", (socket) => {
+  const user = socket.data.user;
+  if (user) {
+    socket.join(`user:${user.id}`);
+    if (user.role === "admin") socket.join("admin");
+  }
+  socket.on("join_station", (stationId) => {
+    if (typeof stationId === "string" && stationId.length <= 64) socket.join(`station:${stationId}`);
+  });
+  socket.on("leave_station", (stationId) => {
+    if (typeof stationId === "string") socket.leave(`station:${stationId}`);
+  });
+});
 
 const ocppCentralSystem = new OcppCentralSystem({ server, io, pathPrefix: "/ocpp" });
 ocppCentralSystem.attach();
 
-// Build allowed origins list: always allow localhost for dev + configured CORS_ORIGIN for prod
-const allowedOrigins = [
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
-];
-if (process.env.CORS_ORIGIN && process.env.CORS_ORIGIN !== "http://localhost:3000") {
-  allowedOrigins.push(process.env.CORS_ORIGIN);
-}
-console.log("✅ CORS allowed origins:", allowedOrigins);
+// ── HTTP middleware ───────────────────────────────────────────────────────────
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+app.use(
+  cors({
+    origin: (origin, cb) => (originAllowed(origin) ? cb(null, true) : cb(null, false)),
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+// Keep the raw body for Razorpay webhook signature verification.
+app.use(express.json({ limit: "2mb", verify: (req, _res, buf) => { req.rawBody = buf; } }));
+app.use(express.urlencoded({ limit: "2mb", extended: true }));
 
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, server-to-server)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    // Also allow any nimbuz.tech subdomain for flexible deployments
-    if (origin.endsWith('.nimbuz.tech') || origin.endsWith('.lb.nimbuz.tech')) return callback(null, true);
-    console.warn(`⚠️ CORS blocked origin: ${origin}`);
-    return callback(new Error(`CORS policy: origin ${origin} not allowed`));
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-}));
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ limit: "50mb", extended: true }));
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: (req) => `${ipKeyGenerator(req.ip || "")}:${String(req.body?.email || "").toLowerCase()}`,
+  message: { error: "Too many attempts. Please try again in 15 minutes." },
+});
+const otpLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-7", legacyHeaders: false, message: { error: "Too many OTP attempts. Please try again later." } });
+const apiLimiter = rateLimit({ windowMs: 60 * 1000, limit: 600, standardHeaders: "draft-7", legacyHeaders: false });
 
-app.use((req, res, next) => {
+app.use("/api", apiLimiter);
+app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/register", otpLimiter);
+app.use("/api/auth/verify-otp", otpLimiter);
+app.use("/api/auth/verify-password-otp", otpLimiter);
+
+app.use((req, _res, next) => {
   req.ocppCentralSystem = ocppCentralSystem;
   next();
 });
 
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/stations', stationRoutes);
-app.use('/api/sessions', sessionRoutes);
-app.use('/api/faults', faultRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/notifications', notificationRoutes);
-
-console.log("MONGO_URI:", process.env.MONGO_URI);
-
-const mongoUri = process.env.MONGO_URI;
-
-// Start HTTP & Socket.io server immediately (so health checks work and server doesn't crash)
-const port = process.env.PORT || 5000;
-console.log("ℹ️ [System] process.env.PORT is:", process.env.PORT);
-console.log(`ℹ️ [System] Server attempting to listen on port: ${port}`);
-server.listen(port, "0.0.0.0", () => {
-  console.log(`🌐 Server running on http://0.0.0.0:${port}`);
-  console.log("📡 Socket.io and OCPP Ready");
-  
-  // Start OCPP Simulator
-  import("./services/ocppSimulator.js").then((module) => {
-    module.default();
-  }).catch((err) => {
-    console.error("❌ Failed to start OCPP Simulator:", err);
-  });
-});
-
-// Helper to extract database and cluster names from URI
-const getClusterAndDb = (uri) => {
-  try {
-    const parsed = new URL(uri);
-    const dbName = parsed.pathname.substring(1) || "ev_chargings";
-
-    let clusterName = "EVapp"; // fallback
-    const appName = parsed.searchParams.get("appName");
-    if (appName) {
-      clusterName = appName;
-    } else {
-      const host = parsed.host;
-      const parts = host.split('.');
-      if (parts.length > 0) {
-        const sub = parts[0];
-        clusterName = sub.charAt(0).toUpperCase() + sub.slice(1);
-      }
+// ── Routes ────────────────────────────────────────────────────────────────────
+app.get("/", (_req, res) => res.send("Charge Hub API"));
+app.get("/api/health", async (_req, res) => {
+  let database = "disconnected";
+  if (isDbReady()) {
+    try {
+      await pool.query("select 1");
+      database = "connected";
+    } catch {
+      database = "error";
     }
-    return { dbName, clusterName };
-  } catch (e) {
-    return { dbName: "ev_chargings", clusterName: "EVapp" };
   }
-};
-
-// Set connection event listeners for automatic reconnection events
-mongoose.connection.on("disconnected", () => {
-  console.log("⚠️ MongoDB Disconnected. Reconnecting...");
-});
-mongoose.connection.on("reconnected", () => {
-  console.log("✅ MongoDB Reconnected");
-});
-mongoose.connection.on("error", (err) => {
-  console.error("❌ MongoDB connection error:", err);
-});
-
-// Connect to MongoDB with auto-retry
-const connectDB = () => {
-  const currentUri = process.env.MONGO_URI;
-  if (!currentUri) {
-    console.error("❌ Error: MONGO_URI environment variable is not defined!");
-    console.error("👉 If running on Nimbuz or Cloud hosting, set MONGO_URI in your dashboard environment variables.");
-    console.error("👉 If running locally, create a backend/.env file containing MONGO_URI.");
-    return;
-  }
-  const isAtlas = currentUri.startsWith("mongodb+srv://") || currentUri.includes("mongodb.net");
-  mongoose.connect(currentUri)
-    .then(() => {
-      if (isAtlas) {
-        console.log("✅ MongoDB Atlas Connected");
-        const { dbName, clusterName } = getClusterAndDb(currentUri);
-        console.log(`📊 Database: ${dbName}`);
-        console.log(`🌐 Cluster: ${clusterName}`);
-      } else {
-        console.log("✅ MongoDB Connected");
-        const { dbName } = getClusterAndDb(currentUri);
-        console.log(`📊 Database: ${dbName}`);
-      }
-
-      // Synchronize User collection indexes to ensure sparse settings are applied
-      User.cleanIndexes()
-        .then(() => User.createIndexes())
-        .then(() => console.log("✅ User model indexes synchronized successfully"))
-        .catch(err => console.error("❌ Failed to synchronize User indexes:", err));
-    })
-    .catch(err => {
-      console.error("❌ MongoDB Connection Error:", err?.message || err);
-      console.log("⚠️ Retrying database connection in 5 seconds...");
-      setTimeout(connectDB, 5000);
-    });
-};
-
-connectDB();
-
-// Socket.io Room Logic
-io.on("connection", (socket) => {
-  console.log("🔌 New Client Connected:", socket.id);
-
-  socket.on("join_station", (stationId) => {
-    socket.join(`station:${stationId}`);
-    console.log(`👥 Client ${socket.id} joined room: station:${stationId}`);
-  });
-
-  socket.on("leave_station", (stationId) => {
-    socket.leave(`station:${stationId}`);
-    console.log(`🏃 Client ${socket.id} left room: station:${stationId}`);
-  });
-
-  socket.on("disconnect", () => {
-    console.log("🔌 Client Disconnected:", socket.id);
+  const ok = database === "connected";
+  res.status(ok ? 200 : 503).json({
+    status: ok ? "ok" : "degraded",
+    database,
+    chargersConnected: ocppCentralSystem.connections.size,
+    timestamp: new Date().toISOString(),
   });
 });
 
-// Mongoose configuration moved to connection block above
-
-// Server start moved into MongoDB connection promise above
-
-app.get("/api/health", (req, res) => {
-  const dbStatus = mongoose.connection.readyState;
-  const dbStatusString = dbStatus === 1 ? "connected" : dbStatus === 2 ? "connecting" : "disconnected";
-  console.log(`💚 [Health Check] Ping received from: ${req.ip} at ${new Date().toISOString()} - DB: ${dbStatusString}`);
-  
-  if (dbStatus !== 1) {
-    return res.status(500).json({
-      status: "degraded",
-      database: dbStatusString,
-      timestamp: new Date().toISOString()
-    });
-  }
-  
-  res.json({
-    status: "ok",
-    database: dbStatusString,
-    timestamp: new Date().toISOString()
-  });
-});
-
-app.get("/test", (req, res) => {
-  res.send("Test working ✅");
-});
-
-// Centralized error handling middleware
-app.use((err, req, res, next) => {
-  console.error("Unhandled Error:", err);
-  const status = err.status || 500;
-  res.status(status).json({ error: err.message || "Internal Server Error" });
-});
-// Static folder for uploads
+app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/stations", stationRoutes);
+app.use("/api/sessions", sessionRoutes);
+app.use("/api/faults", faultRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/notifications", notificationRoutes);
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+app.use((req, res) => res.status(404).json({ error: "Not found" }));
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, _next) => {
+  const status = err.status || err.statusCode || 500;
+  if (status >= 500) console.error("Unhandled Error:", err);
+  res.status(status).json({ error: status >= 500 ? "Internal Server Error" : err.message });
+});
+
+// ── Startup ───────────────────────────────────────────────────────────────────
+/** Promote the emails in ADMIN_EMAILS to platform admin (bootstrap the first admin). */
+const bootstrapAdmins = async () => {
+  const emails = (process.env.ADMIN_EMAILS || "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+  if (!emails.length) return;
+  const rows = await db.update(schema.users).set({ role: "admin" }).where(inArray(schema.users.email, emails)).returning({ email: schema.users.email });
+  if (rows.length) console.log(`👑 Admin role ensured for: ${rows.map((r) => r.email).join(", ")}`);
+};
+
+const TELEMETRY_RETENTION_DAYS = Number(process.env.TELEMETRY_RETENTION_DAYS || 90);
+const runMaintenance = async () => {
+  try {
+    await refundStalePayments();
+    await db.delete(schema.telemetry).where(lt(schema.telemetry.timestamp, new Date(Date.now() - TELEMETRY_RETENTION_DAYS * 86400000)));
+    await db.delete(schema.otpCodes).where(lt(schema.otpCodes.expiresAt, new Date(Date.now() - 3600000)));
+    // Stations that silently dropped off without a clean close
+    await db.execute(sql`update stations set ocpp_connected = false, status = 'offline'
+      where ocpp_connected = true and (last_seen is null or last_seen < now() - interval '10 minutes')`);
+  } catch (err) {
+    console.error("❌ Maintenance job failed:", err.message);
+  }
+};
+
+const port = Number(process.env.PORT || 5000);
+server.listen(port, "0.0.0.0", () => {
+  console.log(`🌐 Server listening on port ${port} (TZ=${process.env.TZ})`);
+});
+
+connectDb().then(async (ok) => {
+  if (!ok) return;
+  await bootstrapAdmins().catch((e) => console.error("Admin bootstrap failed:", e.message));
+  // Chargers reconnect after a deploy; reset the stale "connected" flags first.
+  await db.execute(sql`update stations set ocpp_connected = false where ocpp_connected = true`).catch(() => {});
+  setInterval(runMaintenance, 5 * 60 * 1000).unref();
+  runMaintenance();
+  if (process.env.OCPP_SIMULATOR !== "false") {
+    import("./services/ocppSimulator.js").then((m) => m.default()).catch((e) => console.error("Simulator failed:", e.message));
+  }
+});
+
+const shutdown = (signal) => {
+  console.log(`${signal} received – shutting down`);
+  server.close(() => pool.end().finally(() => process.exit(0)));
+  setTimeout(() => process.exit(0), 10000).unref();
+};
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

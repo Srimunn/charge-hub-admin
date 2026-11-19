@@ -38,6 +38,7 @@ export function DashboardHeader({
   const router = useRouter();
   const pathname = usePathname();
   const [userName, setUserName] = useState('Admin');
+  const [userRole, setUserRole] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -58,6 +59,8 @@ export function DashboardHeader({
     if (typeof window !== 'undefined') {
       const storedName = localStorage.getItem('userName');
       if (storedName) setUserName(storedName);
+      const storedRole = localStorage.getItem('userRole');
+      if (storedRole) setUserRole(storedRole === 'admin' ? 'Administrator' : storedRole === 'owner' ? 'Station owner' : '');
     }
     
     fetchNotifs();
@@ -86,6 +89,7 @@ export function DashboardHeader({
   const handleLogout = () => {
     signOut({ redirect: false });
     localStorage.clear();
+    window.dispatchEvent(new Event('auth-changed'));
     router.push('/login');
   };
 
@@ -128,7 +132,7 @@ export function DashboardHeader({
                     { icon: DollarSign, label: 'Payments', path: '/payments' },
                     { icon: Bell, label: 'Notifications', path: '/notifications' },
                     { icon: BarChart3, label: 'Reports', path: '/reports' },
-                    { icon: Users, label: 'Users & Fleets', path: '/users' },
+                    { icon: Users, label: 'Users', path: '/users' },
                     { icon: Settings, label: 'Settings', path: '/settings' },
                   ].map((item) => {
                     const isActive = pathname === item.path ||
@@ -285,7 +289,10 @@ export function DashboardHeader({
               <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
                 <User className="w-4 h-4 text-primary" />
               </div>
-              <span className="hidden md:inline font-medium text-sm">{userName}</span>
+              <span className="hidden md:flex flex-col items-start leading-tight">
+                <span className="font-medium text-sm">{userName}</span>
+                {userRole && <span className="text-[10px] text-muted-foreground">{userRole}</span>}
+              </span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="rounded-xl">

@@ -17,6 +17,7 @@ import { StopCircle, PlayCircle, Zap, Battery, Activity, Car, Cable, Settings2, 
 import { getSessions, getLiveSessions, startSession, stopSession, getStations, simulateFault } from '@/services/api';
 import { useToast } from '@/hooks/use-toast';
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function SessionsPage() {
   const [isLoading, setIsLoading] = useState(false);
@@ -25,6 +26,13 @@ export default function SessionsPage() {
   const queryClient = useQueryClient();
 
   const sessionsQuery = useQuery({ queryKey: ["sessions"], queryFn: getSessions });
+  const stationsQuery = useQuery({ queryKey: ["stations"], queryFn: getStations });
+  const [startOpen, setStartOpen] = useState(false);
+  const [startStationId, setStartStationId] = useState("");
+  const startableStations = useMemo(
+    () => ((stationsQuery.data ?? []) as any[]).filter((s) => s.ocppConnected && !["fault", "charging", "maintenance"].includes(String(s.status).toLowerCase())),
+    [stationsQuery.data]
+  );
   const liveQuery = useQuery({ queryKey: ["liveSessions"], queryFn: getLiveSessions, refetchInterval: 15000 });
 
   const startMutation = useMutation({
@@ -57,18 +65,18 @@ export default function SessionsPage() {
   });
 
   const handleStartSession = async () => {
+    const station = startableStations.find((s) => s._id === startStationId);
+    if (!station) {
+      toast({ title: "Choose a station", description: "Select a connected station to start a test session.", variant: "destructive" });
+      return;
+    }
     try {
       setIsLoading(true);
-      const stations = await getStations();
-      if (!stations || stations.length === 0) {
-        toast({ title: "Error", description: "No stations available to start a session", variant: "destructive" });
-        return;
-      }
-      const randomStation = stations[Math.floor(Math.random() * stations.length)];
-      await startMutation.mutateAsync(randomStation._id);
-      toast({ title: "Start Requested", description: `Remote start requested for ${randomStation.name}` });
+      await startMutation.mutateAsync(station._id);
+      toast({ title: "Start requested", description: `Remote start sent to ${station.name}.` });
+      setStartOpen(false);
     } catch (err: any) {
-      toast({ title: "Failed to Start", description: err.message, variant: "destructive" });
+      toast({ title: "Failed to start", description: err.message, variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -103,9 +111,36 @@ export default function SessionsPage() {
       <div className="flex-1 p-6 space-y-6">
         
         <div className="flex justify-end">
-           <Button onClick={handleStartSession} disabled={isLoading} className="w-full sm:w-auto gap-2">
-              <PlayCircle className="w-4 h-4" /> Simulate Start Session
-           </Button>
+          <Dialog open={startOpen} onOpenChange={setStartOpen}>
+            <DialogTrigger asChild>
+              <Button className="w-full sm:w-auto gap-2">
+                <PlayCircle className="w-4 h-4" /> Start test session
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Start a test session</DialogTitle>
+                <DialogDescription>
+                  Sends a remote start to the charger as an operator (no payment, no customer). Customers start charging from the mobile app after paying.
+                </DialogDescription>
+              </DialogHeader>
+              {startableStations.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No station is connected and free right now.</p>
+              ) : (
+                <Select value={startStationId} onValueChange={setStartStationId}>
+                  <SelectTrigger><SelectValue placeholder="Choose a connected station" /></SelectTrigger>
+                  <SelectContent>
+                    {startableStations.map((s) => (
+                      <SelectItem key={s._id} value={s._id}>{s.name} · {s.stationNumber}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <Button onClick={handleStartSession} disabled={isLoading || !startStationId} className="w-full gap-2">
+                <PlayCircle className="w-4 h-4" /> {isLoading ? "Starting…" : "Start charging"}
+              </Button>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {/* Summary Cards */}

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { signOut } from 'next-auth/react';
 import { getMe } from '@/services/api';
+import { isOperatorRole } from '@/lib/auth';
 import { AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -35,12 +36,19 @@ export default function DashboardLayout({
         if (res.name) localStorage.setItem('userName', res.name);
         if (res.email) localStorage.setItem('userEmail', res.email);
         if (res.mobile) localStorage.setItem('userMobile', res.mobile);
+        if (res.role) localStorage.setItem('userRole', res.role);
+        if (!isOperatorRole(res.role)) {
+          // Customers (mobile app users) have no access to the operator portal.
+          signOut({ redirect: false });
+          localStorage.clear();
+          router.push('/login?error=AccessDenied');
+        }
       } catch (err) {
         console.error("Failed to sync settings on dashboard bootstrap:", err);
       }
     };
     syncSettings();
-  }, []);
+  }, [router]);
 
   const handleLogout = useCallback(() => {
     signOut({ redirect: false });

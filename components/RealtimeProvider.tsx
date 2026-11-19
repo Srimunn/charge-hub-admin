@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { getSocket } from "@/lib/socket";
+import { getSocket, reconnectSocket } from "@/lib/socket";
 
 type RealtimeState = {
   connected: boolean;
@@ -33,6 +33,10 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
 
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
+    // Login/logout changes which private rooms we belong to.
+    const onAuthChanged = () => reconnectSocket();
+    window.addEventListener("auth-changed", onAuthChanged);
+    window.addEventListener("auth-expired", onAuthChanged);
 
     const onStationUpdate = (payload: any) => {
       queryClient.setQueryData(["stations"], (prev: any) => upsertStation(prev as any[], payload));
@@ -71,6 +75,9 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     const onTransactionUpdate = () => {
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
       queryClient.invalidateQueries({ queryKey: ["liveSessions"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboardKPIs"] });
+      queryClient.invalidateQueries({ queryKey: ["payments"] });
     };
 
     const onFaultAlert = (payload: any) => {
@@ -82,6 +89,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       });
       queryClient.invalidateQueries({ queryKey: ["faults"] });
       queryClient.invalidateQueries({ queryKey: ["stations"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics", "faults"] });
     };
 
     const onFaultResolved = (payload: any) => {
@@ -108,8 +116,11 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     socket.on("fault_alert", onFaultAlert);
     socket.on("fault_resolved", onFaultResolved);
     socket.on("station_status_updated", onStationStatusUpdated);
+    socket.on("payment_update", onTransactionUpdate);
 
     return () => {
+      window.removeEventListener("auth-changed", onAuthChanged);
+      window.removeEventListener("auth-expired", onAuthChanged);
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);
       socket.off("station_update", onStationUpdate);
@@ -119,6 +130,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       socket.off("fault_alert", onFaultAlert);
       socket.off("fault_resolved", onFaultResolved);
       socket.off("station_status_updated", onStationStatusUpdated);
+      socket.off("payment_update", onTransactionUpdate);
     };
   }, [queryClient, socket]);
 

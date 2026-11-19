@@ -1,6 +1,7 @@
 import WebSocket from "ws";
 import { randomUUID } from "crypto";
-import Station from "../models/Station.js";
+import { eq } from "drizzle-orm";
+import { db, schema } from "../db/index.js";
 
 class StationClient {
   constructor(stationNumber) {
@@ -12,10 +13,11 @@ class StationClient {
     this.activeTransactionId = null;
     this.isConnecting = false;
     this.pendingCalls = new Map(); // uniqueId -> { resolve, reject }
+    this.stopped = false;
   }
 
   connect() {
-    if (this.ws || this.isConnecting) return;
+    if (this.stopped || this.ws || this.isConnecting) return;
     this.isConnecting = true;
     const port = process.env.PORT || 5000;
     console.log(`🔌 [OCPP Simulator] Station ${this.stationNumber} connecting to ws://127.0.0.1:${port}/ocpp/${this.stationNumber}...`);
@@ -68,7 +70,7 @@ class StationClient {
   }
 
   scheduleReconnect() {
-    if (this.reconnectTimer) return;
+    if (this.stopped || this.reconnectTimer) return;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
@@ -180,6 +182,11 @@ class StationClient {
 
           console.log(`🔌 [OCPP Simulator] Station ${this.stationNumber} StartTransaction Result:`, res);
           const txId = res?.transactionId;
+          if (res?.idTagInfo?.status !== "Accepted") {
+            console.warn(`⛔ [OCPP Simulator] Station ${this.stationNumber} start rejected by central system`);
+            this.sendStatusNotification(1, "Available");
+            return;
+          }
           if (txId) {
             this.activeTransactionId = txId;
             this.energyUsed = 0.0;
@@ -242,7 +249,11 @@ class StationClient {
       // Check if station has active faults in database
       let isFaulted = false;
       try {
-        const station = await Station.findOne({ stationNumber: this.stationNumber });
+        const [station] = await db
+          .select({ status: schema.stations.status })
+          .from(schema.stations)
+          .where(eq(schema.stations.stationNumber, this.stationNumber))
+          .limit(1);
         if (station && (station.status === "Faulted" || station.status === "FAULT")) {
           isFaulted = true;
         }
@@ -262,22 +273,22 @@ class StationClient {
       if (isFaulted) {
         // Station is stopped due to fault - send 0 kW power/current/voltage
         meterValuePayload.meterValue[0].sampledValue = [
-          { measurand: "Voltage", value: 0 },
-          { measurand: "Current", value: 0 },
-          { measurand: "Power", value: 0 },
-          { measurand: "Temperature", value: 45 },
-          { measurand: "Energy.Active.Import.Register", value: this.energyUsed }
+          { measurand: "Voltage", value: "0", unit: "V" },
+          { measurand: "Current.Import", value: "0", unit: "A" },
+          { measurand: "Power.Active.Import", value: "0", unit: "kW" },
+          { measurand: "Temperature", value: "45", unit: "Celsius" },
+          { measurand: "Energy.Active.Import.Register", value: String(Math.round(this.energyUsed * 1000)), unit: "Wh" }
         ];
       } else {
         // Normal operation - increment energy and stream active charging data
         this.energyUsed += 0.05; // Increment 0.05 kWh every 5 seconds (fast charging simulation)
         
         meterValuePayload.meterValue[0].sampledValue = [
-          { measurand: "Voltage", value: 230 + Math.random() * 5 },
-          { measurand: "Current", value: 16 + Math.random() * 2 },
-          { measurand: "Power", value: 7.2 + Math.random() * 0.5 },
-          { measurand: "Temperature", value: 35 + Math.random() * 3 },
-          { measurand: "Energy.Active.Import.Register", value: this.energyUsed }
+          { measurand: "Voltage", value: (230 + Math.random() * 5).toFixed(1), unit: "V" },
+          { measurand: "Current.Import", value: (16 + Math.random() * 2).toFixed(2), unit: "A" },
+          { measurand: "Power.Active.Import", value: (7.2 + Math.random() * 0.5).toFixed(2), unit: "kW" },
+          { measurand: "Temperature", value: (35 + Math.random() * 3).toFixed(1), unit: "Celsius" },
+          { measurand: "Energy.Active.Import.Register", value: String(Math.round(this.energyUsed * 1000)), unit: "Wh" }
         ];
       }
 
@@ -309,18 +320,25 @@ export function simulateStation(stationNumber) {
   return client;
 }
 
-export default async function startOcppSimulator() {
-  console.log("🚀 [OCPP Simulator] Initializing station client simulator...");
-  try {
-    const stations = await Station.find({});
-    console.log(`🔋 [OCPP Simulator] Found ${stations.length} stations in DB to simulate.`);
-    
-    for (const station of stations) {
-      if (!station.stationNumber) continue;
-      simulateStation(station.stationNumber);
-    }
-  } catch (err) {
-    console.error("❌ [OCPP Simulator] Failed to retrieve stations for simulation:", err.message);
-  }
+export function stopSimulation(stationNumber) {
+  const client = activeClients.get(stationNumber);
+  if (!client) return;
+  client.stopped = true;
+  if (client.reconnectTimer) clearTimeout(client.reconnectTimer);
+  client.cleanup();
+  activeClients.delete(stationNumber);
 }
 
+/** Connect a simulated charger for every station marked `simulated` (demo stations only). */
+export default async function startOcppSimulator() {
+  try {
+    const stations = await db
+      .select({ stationNumber: schema.stations.stationNumber })
+      .from(schema.stations)
+      .where(eq(schema.stations.simulated, true));
+    console.log(`🔋 [OCPP Simulator] ${stations.length} demo station(s) to simulate.`);
+    for (const station of stations) simulateStation(station.stationNumber);
+  } catch (err) {
+    console.error("❌ [OCPP Simulator] Failed to load simulated stations:", err.message);
+  }
+}

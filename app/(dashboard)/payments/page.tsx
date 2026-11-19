@@ -19,8 +19,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, IndianRupee, CheckCircle2, XCircle, Clock, Calendar, RefreshCw, Search } from "lucide-react";
-import { getPayments } from "@/services/api";
+import { Loader2, IndianRupee, CheckCircle2, XCircle, Clock, Calendar, RefreshCw, Search, AlertTriangle, RotateCcw } from "lucide-react";
+import { getPayments, retryRefund } from "@/services/api";
+import { useToast } from "@/hooks/use-toast";
 import { DashboardHeader } from "@/components/layout/DashboardHeader";
 
 interface Payment {
@@ -39,6 +40,7 @@ interface Payment {
     refundAmount?: number;
     extraAmount?: number;
     status: string;
+    refundError?: string | null;
     createdAt: string;
 }
 
@@ -48,6 +50,40 @@ export default function PaymentsPage() {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
     const [searchQuery, setSearchQuery] = useState('');
+    const [retrying, setRetrying] = useState<string | null>(null);
+    const { toast } = useToast();
+
+    const handleRetryRefund = async (payment: Payment) => {
+        setRetrying(payment._id);
+        try {
+            const res = await retryRefund(payment._id);
+            const ok = (res?.status || res?.payment?.status) === 'refunded';
+            toast({
+                title: ok ? 'Refund sent' : 'Refund still failing',
+                description: ok ? `₹${(payment.refundAmount ?? 0).toFixed(2)} refunded to the customer.` : (res?.refundError || res?.payment?.refundError || 'Razorpay did not accept the refund. Check the Razorpay dashboard.'),
+                variant: ok ? undefined : 'destructive',
+            });
+            fetchPayments();
+        } catch (err: any) {
+            toast({ title: 'Retry failed', description: err.message, variant: 'destructive' });
+        } finally {
+            setRetrying(null);
+        }
+    };
+
+    const RetryButton = ({ payment }: { payment: Payment }) =>
+        payment.status === 'refund_failed' ? (
+            <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-[11px] gap-1 mt-1"
+                disabled={retrying === payment._id}
+                onClick={() => handleRetryRefund(payment)}
+                title={payment.refundError || 'Retry the refund'}
+            >
+                <RotateCcw className={`w-3 h-3 ${retrying === payment._id ? 'animate-spin' : ''}`} /> Retry refund
+            </Button>
+        ) : null;
 
     useEffect(() => {
         fetchPayments();
@@ -112,7 +148,7 @@ export default function PaymentsPage() {
 
     // Statistics based on filtered dataset
     const totalRevenue = filteredPayments
-        .filter(p => ['paid', 'charging', 'completed', 'refunded'].includes(p.status.toLowerCase()))
+        .filter(p => ['paid', 'charging', 'completed', 'refunded', 'refund_failed', 'pending_refund'].includes(p.status.toLowerCase()))
         .reduce((acc, curr) => acc + (curr.actualAmount ?? curr.totalAmount ?? 0), 0);
 
     const totalRefunded = filteredPayments
@@ -128,6 +164,8 @@ export default function PaymentsPage() {
                 return <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 font-semibold"><CheckCircle2 className="w-3 h-3 mr-1" /> Completed</Badge>;
             case 'refunded':
                 return <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100 font-semibold"><IndianRupee className="w-3 h-3 mr-1" /> Refunded</Badge>;
+            case 'refund_failed':
+                return <Badge className="bg-red-100 text-red-700 hover:bg-red-100 font-semibold"><AlertTriangle className="w-3 h-3 mr-1" /> Refund failed</Badge>;
             case 'pending_refund':
                 return <Badge className="bg-purple-50 text-purple-600 hover:bg-purple-50 font-semibold"><Clock className="w-3 h-3 mr-1" /> Ref. Pending</Badge>;
             case 'paid':
@@ -325,7 +363,10 @@ export default function PaymentsPage() {
                                                     {refAmount > 0 ? `₹${refAmount.toFixed(2)}` : '--'}
                                                 </TableCell>
                                                 <TableCell className="py-3 text-xs text-center">
-                                                    {getStatusBadge(payment.status)}
+                                                    <div className="flex flex-col items-center">
+                                                        {getStatusBadge(payment.status)}
+                                                        <RetryButton payment={payment} />
+                                                    </div>
                                                 </TableCell>
                                             </TableRow>
                                         );
@@ -359,7 +400,10 @@ export default function PaymentsPage() {
                                                 <span className="font-bold text-sm text-foreground">{payment.userId?.name || 'Unknown'}</span>
                                                 <span className="text-[10px] text-muted-foreground mt-0.5">{payment.userId?.email || ''}</span>
                                             </div>
-                                            {getStatusBadge(payment.status)}
+                                            <div className="flex flex-col items-end">
+                                                {getStatusBadge(payment.status)}
+                                                <RetryButton payment={payment} />
+                                            </div>
                                         </div>
 
                                         <div className="space-y-2 text-xs bg-background/50 p-3 rounded-xl border border-border/20">

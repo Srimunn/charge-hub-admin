@@ -1,25 +1,30 @@
 import express from "express";
-import { getStations, getStationById, setStation, updateStation, deleteStation, getDebugStations, searchStations, getAllStationsPublic, getStationByIdPublic } from "../controllers/stationController.js";
-import { protect } from "../middleware/authMiddleware.js";
+import {
+  getStations,
+  getStationById,
+  setStation,
+  updateStation,
+  deleteStation,
+  searchStations,
+  getAllStationsPublic,
+  getStationByIdPublic,
+} from "../controllers/stationController.js";
+import { protect, operatorOnly } from "../middleware/authMiddleware.js";
 import upload from "../middleware/uploadMiddleware.js";
 
 const router = express.Router();
 
-// GET all stations | POST create station (with optional image upload)
-router.route("/")
-  .get(protect, getStations)
-  .post(protect, upload.single('image'), setStation);
-
+// Public (mobile app)
 router.get("/public", getAllStationsPublic);
 router.get("/public/:id", getStationByIdPublic);
 router.get("/search", searchStations);
 
-// Debug: view mock store
-router.get("/debug", getDebugStations);
-
-router.route("/:id")
-  .get(protect, getStationById)
-  .put(protect, upload.single('image'), updateStation)
-  .delete(protect, deleteStation);
+// Operator dashboard
+router.route("/").get(protect, operatorOnly, getStations).post(protect, operatorOnly, upload.single("image"), setStation);
+router
+  .route("/:id")
+  .get(protect, operatorOnly, getStationById)
+  .put(protect, operatorOnly, upload.single("image"), updateStation)
+  .delete(protect, operatorOnly, deleteStation);
 
 export default router;

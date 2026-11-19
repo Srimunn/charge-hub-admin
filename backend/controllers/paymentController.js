@@ -1,498 +1,372 @@
-import crypto from 'crypto';
-import Razorpay from 'razorpay';
-import Payment from '../models/Payment.js';
-import Station from '../models/Station.js';
-import Session from '../models/Session.js';
-import Transaction from '../models/Transaction.js';
+import crypto from "crypto";
+import { and, desc, eq, inArray, isNull, lt } from "drizzle-orm";
+import { db, schema, newId, toApi, sessionToApi } from "../db/index.js";
+import { computeBill, stationRates } from "../services/pricing.js";
+import {
+  getRazorpay,
+  razorpayConfigured,
+  paymentsDemoMode,
+  verifyCheckoutSignature,
+  verifyWebhookSignature,
+} from "../services/razorpay.js";
+import { findStationById, refundFull, settlePayment } from "../services/chargingService.js";
+import { operatorStationIds, stationScope, findManagedStation } from "../services/access.js";
+import { notify } from "../services/notificationService.js";
+import { emitToOperatorsAndUser } from "../services/realtime.js";
+import { logEvent } from "./auditLogController.js";
 
-let razorpayInstance = null;
+const MAX_ENERGY_KWH = Number(process.env.MAX_PREPAID_ENERGY_KWH || 200);
+const isOperator = (req) => ["admin", "owner"].includes(req.user?.role);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const getRazorpayInstance = () => {
-    if (!razorpayInstance) {
-        if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
-            console.error('❌ Razorpay keys not found in environment variables.');
-            throw new Error('Razorpay configuration missing');
-        }
-        razorpayInstance = new Razorpay({
-            key_id: process.env.RAZORPAY_KEY_ID,
-            key_secret: process.env.RAZORPAY_KEY_SECRET,
-        });
-    }
-    return razorpayInstance;
+const setPayment = async (id, values, extraWhere) => {
+  const where = extraWhere ? and(eq(schema.payments.id, id), extraWhere) : eq(schema.payments.id, id);
+  const [row] = await db.update(schema.payments).set({ ...values, updatedAt: new Date() }).where(where).returning();
+  return row || null;
 };
 
-// @desc    Create a new Razorpay order
-// @route   POST /api/payments/create-order
-// @access  Private
+const stationIsReachable = (ocpp, station) => station.simulated || ocpp?.isConnected(station.stationNumber);
+
+// POST /api/payments/create-order { stationId, estimatedEnergyKwh }
 export const createOrder = async (req, res) => {
-    try {
-        console.log('📥 INBOUND REQUEST: POST /payments/create-order', req.body);
-        const { stationId, estimatedEnergyKwh } = req.body;
-        
-        if (!stationId || !estimatedEnergyKwh) {
-            return res.status(400).json({ error: "stationId and estimatedEnergyKwh are required" });
-        }
-
-        const station = await Station.findById(stationId);
-        if (!station) {
-            return res.status(404).json({ error: "Station not found" });
-        }
-
-        const energyCost = (station.basePricePerKwh || 10) * estimatedEnergyKwh;
-        const convenienceFee = station.convenienceFee || 0;
-        const tax = station.tax || 0;
-        const totalAmount = energyCost + convenienceFee + tax;
-        const amountInPaise = Math.round(totalAmount * 100);
-
-        const instance = getRazorpayInstance();
-        
-        const options = {
-            amount: amountInPaise,
-            currency: "INR",
-            receipt: `receipt_${Date.now()}_${req.user.id.toString().substring(0, 5)}`
-        };
-
-        const order = await instance.orders.create(options);
-        
-        if (!order) {
-            return res.status(500).json({ error: "Failed to create Razorpay order" });
-        }
-
-        // Save pending payment to MongoDB
-        const payment = new Payment({
-            userId: req.user.id,
-            stationId: stationId,
-            orderId: order.id,
-            amount: totalAmount,
-            currency: "INR",
-            tax,
-            convenienceFee,
-            energyCost,
-            totalAmount,
-            estimatedAmount: totalAmount,
-            status: "pending"
-        });
-
-        await payment.save();
-
-        res.status(201).json({
-            orderId: order.id,
-            amount: totalAmount,
-            amountInPaise,
-            currency: order.currency,
-            keyId: process.env.RAZORPAY_KEY_ID
-        });
-
-    } catch (error) {
-        console.error('❌ createOrder error:', error);
-        res.status(500).json({ error: error.message });
+  try {
+    const { stationId } = req.body;
+    const estimatedEnergyKwh = Number(req.body.estimatedEnergyKwh);
+    if (!stationId || !Number.isFinite(estimatedEnergyKwh)) {
+      return res.status(400).json({ error: "stationId and estimatedEnergyKwh are required" });
     }
+    if (estimatedEnergyKwh <= 0 || estimatedEnergyKwh > MAX_ENERGY_KWH) {
+      return res.status(400).json({ error: `estimatedEnergyKwh must be between 0 and ${MAX_ENERGY_KWH}` });
+    }
+
+    const station = await findStationById(stationId);
+    if (!station) return res.status(404).json({ error: "Station not found" });
+    if (["Faulted", "FAULT", "maintenance"].includes(station.status)) {
+      return res.status(409).json({ error: "Station is not available right now" });
+    }
+    if (!stationIsReachable(req.ocppCentralSystem, station)) {
+      return res.status(409).json({ error: "Station is offline. Please try another station." });
+    }
+    const [busy] = await db
+      .select({ id: schema.chargingSessions.id })
+      .from(schema.chargingSessions)
+      .where(and(eq(schema.chargingSessions.stationId, station.id), inArray(schema.chargingSessions.status, ["active", "FAULT_PAUSED"])))
+      .limit(1);
+    if (busy) return res.status(409).json({ error: "Station is currently in use" });
+
+    const rates = stationRates(station);
+    if (rates.pricePerKwh <= 0) return res.status(409).json({ error: "Station pricing is not configured" });
+    const bill = computeBill({ energyKwh: estimatedEnergyKwh, ...rates });
+    if (bill.total < 1) return res.status(400).json({ error: "Order amount must be at least ₹1" });
+    const amountInPaise = Math.round(bill.total * 100);
+
+    let orderId;
+    let keyId = process.env.RAZORPAY_KEY_ID;
+    if (razorpayConfigured()) {
+      const order = await getRazorpay().orders.create({
+        amount: amountInPaise,
+        currency: "INR",
+        receipt: `rcpt_${Date.now()}_${req.user.id.slice(-6)}`,
+        notes: { stationId: station.id, userId: req.user.id },
+      });
+      orderId = order.id;
+    } else if (paymentsDemoMode()) {
+      orderId = `order_demo_${crypto.randomBytes(8).toString("hex")}`;
+      keyId = "demo";
+    } else {
+      return res.status(503).json({ error: "Payments are not configured" });
+    }
+
+    await db.insert(schema.payments).values({
+      id: newId(),
+      userId: req.user.id,
+      stationId: station.id,
+      orderId,
+      amount: bill.total,
+      currency: "INR",
+      tax: bill.tax,
+      taxPercent: rates.taxPercent,
+      convenienceFee: bill.convenienceFee,
+      energyCost: bill.energyCost,
+      totalAmount: bill.total,
+      estimatedAmount: bill.total,
+      estimatedEnergyKwh,
+      pricePerKwh: rates.pricePerKwh,
+      status: "pending",
+    });
+
+    res.status(201).json({
+      orderId,
+      amount: bill.total,
+      amountInPaise,
+      currency: "INR",
+      keyId,
+      breakdown: { ...bill, pricePerKwh: rates.pricePerKwh, taxPercent: rates.taxPercent, estimatedEnergyKwh },
+    });
+  } catch (error) {
+    console.error("❌ createOrder error:", error?.error?.description || error.message);
+    res.status(500).json({ error: "Could not create payment order" });
+  }
 };
 
-// @desc    Verify Razorpay payment signature
-// @route   POST /api/payments/verify
-// @access  Private
-// @desc    Verify Razorpay payment signature & secure start transaction gate
-// @route   POST /api/payments/verify
-// @access  Private
+const findSessionForOrder = async (orderId) => {
+  const [row] = await db.select().from(schema.chargingSessions).where(eq(schema.chargingSessions.orderId, orderId)).limit(1);
+  return row || null;
+};
+
+// POST /api/payments/verify { razorpay_order_id, razorpay_payment_id, razorpay_signature }
 export const verifyPayment = async (req, res) => {
-    try {
-        console.log('📥 INBOUND REQUEST: POST /payments/verify', req.body);
-        const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+  try {
+    const { razorpay_order_id: orderId, razorpay_payment_id: paymentId, razorpay_signature: signature } = req.body;
+    if (!orderId || !paymentId || !signature) return res.status(400).json({ error: "Missing Razorpay payment details" });
 
-        if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-            return res.status(400).json({ error: "Missing Razorpay payment details" });
-        }
+    const [payment] = await db
+      .select()
+      .from(schema.payments)
+      .where(and(eq(schema.payments.orderId, String(orderId)), eq(schema.payments.userId, req.user.id)))
+      .limit(1);
+    if (!payment) return res.status(404).json({ error: "Payment record not found" });
 
-        const body = razorpay_order_id + "|" + razorpay_payment_id;
-        const expectedSignature = crypto
-            .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-            .update(body.toString())
-            .digest('hex');
+    const station = await findStationById(payment.stationId);
 
-        const isAuthentic = expectedSignature === razorpay_signature || razorpay_payment_id.startsWith('pay_mock_');
-
-        if (!isAuthentic) {
-            console.error('❌ verifyPayment: Invalid signature');
-            return res.status(400).json({ error: "Invalid payment signature" });
-        }
-
-        const payment = await Payment.findOne({ orderId: razorpay_order_id });
-        if (!payment) {
-            return res.status(404).json({ error: "Payment record not found" });
-        }
-
-        // Set payment properties
-        payment.paymentId = razorpay_payment_id;
-        payment.signature = razorpay_signature;
-        payment.status = "paid";
-        await payment.save();
-
-        try {
-            const { sendNotification } = await import("../services/notificationService.js");
-            await sendNotification({
-                userId: payment.userId,
-                title: "Payment Successful",
-                message: `Your payment of ₹${payment.amount} was successful. Order ID: ${payment.orderId}.`,
-                type: "payment",
-                metadata: { paymentId: payment._id, orderId: payment.orderId, amount: payment.amount }
-            });
-        } catch (notifErr) {
-            console.error("❌ Error sending Payment Success notification:", notifErr.message);
-        }
-
-        if (req.ocppCentralSystem?.io) {
-            req.ocppCentralSystem.io.emit('payment_update', payment);
-        }
-
-        // Now initiate station verification and start OCPP transaction!
-        const station = await Station.findById(payment.stationId);
-        if (!station) {
-            payment.status = "failed";
-            await payment.save();
-            return res.status(404).json({ error: "Station not found" });
-        }
-
-        const ocpp = req.ocppCentralSystem;
-        if (!ocpp) {
-            payment.status = "failed";
-            await payment.save();
-            return res.status(500).json({ error: "OCPP Central System not available" });
-        }
-
-        // If station is not connected, dynamically spin up the simulator to connect it
-        if (!ocpp.isConnected(station.stationNumber)) {
-            console.log(`⚠️ Station ${station.stationNumber} is not connected. Attempting dynamic simulation connection...`);
-            try {
-                const ocppSimulator = await import("../services/ocppSimulator.js");
-                ocppSimulator.simulateStation(station.stationNumber);
-                // Give it a brief moment (800ms) to establish connection and register
-                await new Promise((resolve) => setTimeout(resolve, 800));
-            } catch (simErr) {
-                console.error("❌ Failed to dynamically spin up OCPP simulator:", simErr.message);
-            }
-        }
-
-        if (!ocpp.isConnected(station.stationNumber)) {
-            // OCPP Connect failed -> Trigger refund protection!
-            console.error(`❌ Station ${station.stationNumber} failed to connect. Triggering failed charging protection refund.`);
-            return await handleStartFailure(payment, "Station not connected via OCPP", res);
-        }
-
-        const idTag = `user:${req.user.id}`;
-        let result;
-        try {
-            result = await ocpp.sendCall(station.stationNumber, "RemoteStartTransaction", { connectorId: 1, idTag });
-        } catch (ocppCallErr) {
-            console.error(`❌ OCPP RemoteStartTransaction sendCall failed:`, ocppCallErr.message);
-            return await handleStartFailure(payment, `OCPP start transaction call failed: ${ocppCallErr.message}`, res);
-        }
-
-        let tx = null;
-        if (result && (result.status === "Accepted" || result.status === "accepted")) {
-            console.log(`⏳ [verifyPayment] Waiting for OCPP StartTransaction to register in MongoDB...`);
-            for (let i = 0; i < 20; i++) {
-                await new Promise((resolve) => setTimeout(resolve, 300));
-                tx = await Transaction.findOne({
-                    stationId: station._id,
-                    idTag: idTag,
-                    status: "active"
-                }).sort({ createdAt: -1 });
-                if (tx) {
-                    console.log(`✅ [verifyPayment] Transaction found in DB: ${tx._id} (OCPP Tx ID: ${tx.ocppTransactionId})`);
-                    break;
-                }
-            }
-        }
-
-        if (!tx) {
-            console.error(`❌ OCPP Transaction record was not created in time. Triggering refund.`);
-            return await handleStartFailure(payment, "OCPP RemoteStartTransaction Timeout", res);
-        }
-
-        // Successfully started! Create the MongoDB Session record!
-        const session = new Session({
-            stationId: payment.stationId,
-            userId: payment.userId,
-            startTime: new Date(),
-            energyUsed: 0,
-            cost: 0,
-            appliedPrice: station.basePricePerKwh || 0,
-            convenienceFee: payment.convenienceFee,
-            tax: payment.tax,
-            status: "active",
-            connectorId: 1,
-            paymentId: payment.paymentId,
-            orderId: payment.orderId,
-        });
-        session.sessionId = session._id.toString();
-        await session.save();
-
-        // Update payment with sessionId and set status to charging
-        payment.sessionId = session._id;
-        payment.status = "charging";
-        await payment.save();
-
-        // Update transaction with payment/session details
-        tx.paymentId = payment.paymentId;
-        tx.orderId = payment.orderId;
-        tx.sessionId = session._id.toString();
-        await tx.save();
-
-        // Update station status to charging
-        station.status = "charging";
-        if (station.connectors && station.connectors.length > 0) {
-            const conn = station.connectors.find(c => c.connectorId === 1);
-            if (conn) {
-                conn.status = "Charging";
-                conn.updatedAt = new Date();
-            }
-        }
-        await station.save();
-
-        // Emit Socket Events
-        if (req.ocppCentralSystem?.io) {
-            req.ocppCentralSystem.io.emit('payment_update', payment);
-            req.ocppCentralSystem.io.emit('station_update', { 
-                stationId: station._id, 
-                stationNumber: station.stationNumber, 
-                status: station.status,
-                connectorId: 1,
-                connectorStatus: "Charging"
-            });
-            req.ocppCentralSystem.io.emit('transaction_update', {
-                stationId: station._id,
-                stationNumber: station.stationNumber,
-                connectorId: 1,
-                transactionId: tx.ocppTransactionId,
-                status: "active",
-                startedAt: tx.startTime,
-                idTag: tx.idTag,
-            });
-        }
-
-        res.status(200).json({ 
-            message: "Payment verified and charging session started successfully", 
-            payment, 
-            session,
-            transaction: tx 
-        });
-
-    } catch (error) {
-        console.error('❌ verifyPayment error:', error);
-        res.status(500).json({ error: error.message });
+    // Idempotent: verifying again returns the current state instead of starting twice.
+    if (payment.status !== "pending") {
+      const session = await findSessionForOrder(payment.orderId);
+      if (session) {
+        const s = sessionToApi(session, station);
+        return res.status(200).json({ message: "Payment already verified", payment: toApi(payment), session: s, transaction: s });
+      }
+      if (payment.status === "paid") return res.status(202).json({ message: "Payment verified; charging is starting", payment: toApi(payment) });
+      return res.status(409).json({ error: `Payment is ${payment.status}`, payment: toApi(payment) });
     }
+
+    const demo = paymentsDemoMode() && payment.orderId.startsWith("order_demo_") && String(paymentId).startsWith("pay_mock_");
+    if (!demo && !verifyCheckoutSignature(payment.orderId, paymentId, signature)) {
+      console.warn(`❌ verifyPayment: invalid signature for order ${payment.orderId}`);
+      return res.status(400).json({ error: "Invalid payment signature" });
+    }
+
+    const paid = await setPayment(payment.id, { status: "paid", paymentId: String(paymentId), signature: String(signature) }, eq(schema.payments.status, "pending"));
+    if (!paid) return res.status(409).json({ error: "Payment is already being processed" });
+
+    notify({
+      userId: paid.userId,
+      title: "Payment Successful",
+      message: `Your payment of ₹${paid.totalAmount.toFixed(2)} was successful. Order ID: ${paid.orderId}.`,
+      type: "payment",
+      metadata: { paymentId: paid.id, orderId: paid.orderId, amount: paid.totalAmount },
+    });
+    emitToOperatorsAndUser(station, paid.userId, "payment_update", toApi(paid));
+
+    const ocpp = req.ocppCentralSystem;
+    const fail = async (reason) => {
+      // Claim the payment for refund only if charging has not started in the meantime.
+      const claimed = await setPayment(paid.id, { status: "pending_refund" }, eq(schema.payments.status, "paid"));
+      if (!claimed) return null;
+      const { payment: refunded, refunded: ok } = await refundFull(claimed, reason, station);
+      return res.status(400).json({
+        error: ok
+          ? `Charging could not start (${reason}). A full refund has been initiated.`
+          : `Charging could not start (${reason}). Your refund is being processed.`,
+        payment: toApi(refunded),
+      });
+    };
+
+    if (!station) return fail("Station not found");
+    if (station.simulated && !ocpp.isConnected(station.stationNumber)) {
+      const sim = await import("../services/ocppSimulator.js");
+      sim.simulateStation(station.stationNumber);
+      for (let i = 0; i < 10 && !ocpp.isConnected(station.stationNumber); i++) await sleep(200);
+    }
+    if (!ocpp.isConnected(station.stationNumber)) return (await fail("Station not connected")) ?? res.status(200).json({ payment: toApi(paid) });
+
+    try {
+      const result = await ocpp.sendCall(station.stationNumber, "RemoteStartTransaction", { connectorId: 1, idTag: `user:${req.user.id}` });
+      if (String(result?.status).toLowerCase() !== "accepted") {
+        return (await fail("Charger rejected the start request")) ?? res.status(200).json({ payment: toApi(paid) });
+      }
+    } catch (e) {
+      return (await fail(`Charger did not respond: ${e.message}`)) ?? res.status(200).json({ payment: toApi(paid) });
+    }
+
+    let session = null;
+    for (let i = 0; i < 25 && !session; i++) {
+      await sleep(300);
+      session = await findSessionForOrder(paid.orderId);
+    }
+    if (!session) {
+      const failed = await fail("Charger did not start the session in time");
+      if (failed) return failed;
+      session = await findSessionForOrder(paid.orderId); // started just in time
+    }
+
+    const [current] = await db.select().from(schema.payments).where(eq(schema.payments.id, paid.id)).limit(1);
+    const s = sessionToApi(session, station);
+    res.status(200).json({
+      message: "Payment verified and charging session started successfully",
+      payment: toApi(current),
+      session: s,
+      transaction: s,
+    });
+  } catch (error) {
+    console.error("❌ verifyPayment error:", error.message);
+    res.status(500).json({ error: "Payment verification failed" });
+  }
 };
 
-const handleStartFailure = async (payment, reason, res) => {
-    try {
-        console.log(`🛡️ [FAILED CHARGING PROTECTION] Starting refund sequence for Payment ${payment._id}. Reason: ${reason}`);
-        
-        payment.status = "pending_refund";
-        await payment.save();
-
-        try {
-            const { sendNotification } = await import("../services/notificationService.js");
-            await sendNotification({
-                userId: payment.userId,
-                title: "Refund Initiated",
-                message: `Charging start failed due to: ${reason}. A full refund of ₹${payment.totalAmount} has been initiated.`,
-                type: "payment",
-                metadata: { paymentId: payment._id, amount: payment.totalAmount }
-            });
-        } catch (err) {
-            console.error("❌ Error sending Refund Initiated notification:", err.message);
-        }
-
-        let refundId = `ref_mock_${Math.random().toString(36).substring(2, 10)}`;
-        if (payment.paymentId && !payment.paymentId.startsWith('pay_mock_')) {
-            try {
-                const instance = getRazorpayInstance();
-                const refund = await instance.payments.refund(payment.paymentId, {
-                    amount: Math.round(payment.totalAmount * 100),
-                });
-                refundId = refund.id;
-            } catch (refundErr) {
-                console.error("❌ Razorpay Refund Call Error:", refundErr.message);
-            }
-        }
-
-        payment.status = "refunded";
-        payment.refundId = refundId;
-        payment.refundAmount = payment.totalAmount;
-        payment.refundTimestamp = new Date();
-        await payment.save();
-
-        try {
-            const { sendNotification } = await import("../services/notificationService.js");
-            await sendNotification({
-                userId: payment.userId,
-                title: "Refund Completed",
-                message: `Your refund of ₹${payment.totalAmount} has been successfully credited. Refund ID: ${refundId}.`,
-                type: "payment",
-                metadata: { paymentId: payment._id, refundId, amount: payment.totalAmount }
-            });
-        } catch (err) {
-            console.error("❌ Error sending Refund Completed notification:", err.message);
-        }
-
-        if (payment.ocppCentralSystem?.io) {
-            payment.ocppCentralSystem.io.emit('payment_update', payment);
-        }
-
-        return res.status(400).json({
-            error: `Charging could not start (${reason}). Full refund has been processed.`,
-            payment
-        });
-    } catch (err) {
-        console.error("❌ handleStartFailure critical error:", err.message);
-        res.status(500).json({ error: "Failed charging protection sequence error: " + err.message });
-    }
-};
-
-// @desc    Handle Razorpay Webhooks
-// @route   POST /api/payments/webhook
-// @access  Public
+// POST /api/payments/webhook (Razorpay → server, HMAC over raw body)
 export const webhookHandler = async (req, res) => {
-    try {
-        // Razorpay sends webhook payload as JSON
-        const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
-        const signature = req.headers['x-razorpay-signature'];
-        
-        if (!secret) {
-            console.warn('⚠️ Webhook secret not configured. Skipping validation.');
-            return res.status(200).send('OK');
-        }
-
-        // Compute HMAC
-        const expectedSignature = crypto
-            .createHmac('sha256', secret)
-            .update(JSON.stringify(req.body))
-            .digest('hex');
-
-        if (expectedSignature !== signature) {
-            console.error('❌ Webhook invalid signature');
-            return res.status(400).send('Invalid signature');
-        }
-
-        console.log(`📥 WEBHOOK RECEIVED: ${req.body.event}`);
-        
-        const eventName = req.body.event;
-        const paymentData = req.body.payload.payment?.entity;
-
-        if (eventName === 'payment.captured' || eventName === 'payment.authorized') {
-            if (paymentData && paymentData.order_id) {
-                const dbPayment = await Payment.findOneAndUpdate(
-                    { orderId: paymentData.order_id },
-                    { status: "paid", paymentId: paymentData.id },
-                    { new: true }
-                );
-                if (dbPayment) {
-                    try {
-                        const { sendNotification } = await import("../services/notificationService.js");
-                        await sendNotification({
-                            userId: dbPayment.userId,
-                            title: "Payment Successful",
-                            message: `Your payment of ₹${dbPayment.amount} was captured successfully.`,
-                            type: "payment",
-                            metadata: { paymentId: dbPayment._id, orderId: dbPayment.orderId, amount: dbPayment.amount }
-                        });
-                    } catch (notifErr) {
-                        console.error("❌ Error sending Payment Success webhook notification:", notifErr.message);
-                    }
-                }
-                if (req.ocppCentralSystem?.io) {
-                    req.ocppCentralSystem.io.emit('payment_success', { orderId: paymentData.order_id });
-                    req.ocppCentralSystem.io.emit('transaction_update', { event: 'payment.captured', orderId: paymentData.order_id });
-                }
-            }
-        } else if (eventName === 'payment.failed') {
-            if (paymentData && paymentData.order_id) {
-                const dbPayment = await Payment.findOneAndUpdate(
-                    { orderId: paymentData.order_id },
-                    { status: "failed", paymentId: paymentData.id },
-                    { new: true }
-                );
-                if (dbPayment) {
-                    try {
-                        const { sendNotification } = await import("../services/notificationService.js");
-                        await sendNotification({
-                            userId: dbPayment.userId,
-                            title: "Payment Failed",
-                            message: `Your payment order ${dbPayment.orderId} of ₹${dbPayment.amount} has failed.`,
-                            type: "payment",
-                            metadata: { paymentId: dbPayment._id, orderId: dbPayment.orderId, amount: dbPayment.amount }
-                        });
-                    } catch (notifErr) {
-                        console.error("❌ Error sending Payment Failed webhook notification:", notifErr.message);
-                    }
-                }
-                if (req.ocppCentralSystem?.io) {
-                    req.ocppCentralSystem.io.emit('payment_failed', { orderId: paymentData.order_id });
-                    req.ocppCentralSystem.io.emit('transaction_update', { event: 'payment.failed', orderId: paymentData.order_id });
-                }
-            }
-        }
-
-        res.status(200).send('OK');
-    } catch (error) {
-        console.error('❌ webhookHandler error:', error);
-        res.status(500).send('Internal Server Error');
+  try {
+    if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
+      console.error("❌ RAZORPAY_WEBHOOK_SECRET not set – webhook rejected");
+      return res.status(503).send("Webhook not configured");
     }
+    if (!verifyWebhookSignature(req.rawBody, req.headers["x-razorpay-signature"])) {
+      console.warn("❌ Webhook invalid signature");
+      return res.status(400).send("Invalid signature");
+    }
+
+    const event = req.body?.event;
+    const entity = req.body?.payload?.payment?.entity;
+    if (entity?.order_id) {
+      const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.orderId, entity.order_id)).limit(1);
+      if (payment) {
+        const station = await findStationById(payment.stationId);
+        if ((event === "payment.captured" || event === "payment.authorized") && payment.status === "pending") {
+          // Money received but the app never called /verify; the stale-payment job refunds it if charging never starts.
+          const p = await setPayment(payment.id, { status: "paid", paymentId: entity.id }, eq(schema.payments.status, "pending"));
+          if (p) emitToOperatorsAndUser(station, p.userId, "payment_update", toApi(p));
+        } else if (event === "payment.failed" && payment.status === "pending") {
+          const p = await setPayment(payment.id, { status: "failed", paymentId: entity.id }, eq(schema.payments.status, "pending"));
+          if (p) {
+            emitToOperatorsAndUser(station, p.userId, "payment_update", toApi(p));
+            notify({
+              userId: p.userId,
+              title: "Payment Failed",
+              message: `Your payment for order ${p.orderId} of ₹${p.totalAmount.toFixed(2)} failed.`,
+              type: "payment",
+              metadata: { paymentId: p.id, orderId: p.orderId },
+            });
+          }
+        }
+      }
+    }
+    res.status(200).send("OK");
+  } catch (error) {
+    console.error("❌ webhookHandler error:", error.message);
+    res.status(500).send("Internal Server Error");
+  }
 };
 
-// @desc    Get all payments
-// @route   GET /api/payments
-// @access  Private
+/** Payments with user + station populated (old Mongo shape). */
+const withRelations = async (rows) => {
+  const userIds = [...new Set(rows.map((r) => r.userId))];
+  const stationIds = [...new Set(rows.map((r) => r.stationId))];
+  const users = userIds.length
+    ? await db.select({ id: schema.users.id, name: schema.users.name, email: schema.users.email }).from(schema.users).where(inArray(schema.users.id, userIds))
+    : [];
+  const stations = stationIds.length
+    ? await db
+        .select({ id: schema.stations.id, name: schema.stations.name, stationNumber: schema.stations.stationNumber })
+        .from(schema.stations)
+        .where(inArray(schema.stations.id, stationIds))
+    : [];
+  const u = new Map(users.map((x) => [x.id, toApi(x)]));
+  const s = new Map(stations.map((x) => [x.id, toApi(x)]));
+  return rows.map((r) => toApi(r, { userId: u.get(r.userId) || r.userId, stationId: s.get(r.stationId) || r.stationId }));
+};
+
+const paymentScope = async (req) => {
+  if (req.query.scope === "user" || !isOperator(req)) return eq(schema.payments.userId, req.user.id);
+  return stationScope(schema.payments.stationId, await operatorStationIds(req));
+};
+
+// GET /api/payments
 export const getPayments = async (req, res) => {
-    try {
-        const { scope } = req.query;
-        let filter = {};
-        if (scope === "user") {
-            filter = { userId: req.user.id };
-        } else {
-            const stations = await Station.find({ userId: req.user.id }).select("_id");
-            const stationIds = stations.map((s) => s._id);
-            filter = { stationId: { $in: stationIds } };
-        }
-        const payments = await Payment.find(filter)
-            .populate("userId", "name email")
-            .populate("stationId", "name stationNumber")
-            .sort({ createdAt: -1 });
-        res.json(payments);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+  try {
+    const where = await paymentScope(req);
+    const limit = Math.min(Number(req.query.limit) || 500, 2000);
+    const q = db.select().from(schema.payments);
+    const rows = await (where ? q.where(where) : q).orderBy(desc(schema.payments.createdAt)).limit(limit);
+    res.json(await withRelations(rows));
+  } catch (err) {
+    console.error("getPayments error:", err.message);
+    res.status(500).json({ error: "Failed to load payments" });
+  }
 };
 
-// @desc    Get payment by ID
-// @route   GET /api/payments/:id
-// @access  Private
+const findAccessiblePayment = async (req, condition) => {
+  const scope = isOperator(req)
+    ? stationScope(schema.payments.stationId, await operatorStationIds(req))
+    : eq(schema.payments.userId, req.user.id);
+  const [row] = await db.select().from(schema.payments).where(scope ? and(condition, scope) : condition).limit(1);
+  return row ? (await withRelations([row]))[0] : null;
+};
+
+// GET /api/payments/:id
 export const getPaymentById = async (req, res) => {
-    try {
-        const payment = await Payment.findById(req.params.id).populate("userId", "name email").populate("stationId", "name");
-        if (!payment) {
-            return res.status(404).json({ error: "Payment not found" });
-        }
-        res.json(payment);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+  try {
+    const payment = await findAccessiblePayment(req, eq(schema.payments.id, String(req.params.id)));
+    if (!payment) return res.status(404).json({ error: "Payment not found" });
+    res.json(payment);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to load payment" });
+  }
 };
 
-// @desc    Get payment by Session ID
-// @route   GET /api/payments/session/:sessionId
-// @access  Private
+// GET /api/payments/session/:sessionId
 export const getPaymentBySessionId = async (req, res) => {
-    try {
-        const payment = await Payment.findOne({ sessionId: req.params.sessionId })
-            .populate("userId", "name email")
-            .populate("stationId", "name stationNumber");
-        if (!payment) {
-            return res.status(404).json({ error: "Payment not found" });
-        }
-        res.json(payment);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+  try {
+    const payment = await findAccessiblePayment(req, eq(schema.payments.sessionId, String(req.params.sessionId)));
+    if (!payment) return res.status(404).json({ error: "Payment not found" });
+    res.json(payment);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to load payment" });
+  }
 };
+
+// POST /api/payments/:id/retry-refund – operator retries a failed refund
+export const retryRefund = async (req, res) => {
+  try {
+    const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.id, String(req.params.id))).limit(1);
+    if (!payment) return res.status(404).json({ error: "Payment not found" });
+    const station = await findManagedStation(req, payment.stationId);
+    if (!station) return res.status(404).json({ error: "Payment not found" });
+    if (payment.status !== "refund_failed") return res.status(400).json({ error: "Only failed refunds can be retried" });
+
+    let updated;
+    if (payment.sessionId) updated = await settlePayment(payment, payment.actualAmount ?? 0, station);
+    else updated = (await refundFull(payment, "retry", station)).payment;
+    await logEvent(req.user.id, `Refund retried for order ${payment.orderId}`, req);
+    res.json(toApi(updated));
+  } catch (err) {
+    console.error("retryRefund error:", err.message);
+    res.status(500).json({ error: "Refund retry failed" });
+  }
+};
+
+/**
+ * Safety net: money captured but charging never started (app closed, charger offline…).
+ * Refund paid payments with no session after 15 minutes. Runs periodically from server.js.
+ */
+export const refundStalePayments = async () => {
+  const cutoff = new Date(Date.now() - 15 * 60 * 1000);
+  const stale = await db
+    .select()
+    .from(schema.payments)
+    .where(and(eq(schema.payments.status, "paid"), isNull(schema.payments.sessionId), lt(schema.payments.updatedAt, cutoff)));
+  for (const p of stale) {
+    const claimed = await setPayment(p.id, { status: "pending_refund" }, eq(schema.payments.status, "paid"));
+    if (!claimed) continue;
+    const station = await findStationById(p.stationId);
+    console.log(`💸 Refunding stale payment ${p.orderId} (charging never started)`);
+    await refundFull(claimed, "Charging did not start", station);
+  }
+  // Abandoned checkouts
+  await db
+    .update(schema.payments)
+    .set({ status: "failed", updatedAt: new Date() })
+    .where(and(eq(schema.payments.status, "pending"), lt(schema.payments.createdAt, new Date(Date.now() - 24 * 60 * 60 * 1000))));
+};
+
+

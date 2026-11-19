@@ -31,7 +31,7 @@ const navItems = [
   { icon: DollarSign, label: 'Payments', path: '/payments' },
   { icon: Bell, label: 'Notifications', path: '/notifications' },
   { icon: BarChart3, label: 'Reports', path: '/reports' },
-  { icon: Users, label: 'Users & Fleets', path: '/users' },
+  { icon: Users, label: 'Users', path: '/users' },
   { icon: Settings, label: 'Settings', path: '/settings' },
 ];
 
@@ -55,6 +55,7 @@ export function DashboardSidebar() {
   const handleLogout = () => {
     signOut({ redirect: false });
     localStorage.clear();
+    window.dispatchEvent(new Event('auth-changed'));
     router.push('/login');
   };
 

@@ -39,7 +39,7 @@ export function KPICards() {
     {
       title: 'Total Revenue',
       value: `₹${totalRevenue.toFixed(2)}`,
-      change: '+12.5% vs yesterday',
+      change: 'All time, incl. GST',
       icon: IndianRupee,
       iconColor: 'text-sky-600 dark:text-sky-400',
       bgColor: 'bg-sky-500/15',
@@ -52,7 +52,7 @@ export function KPICards() {
         <div className="space-y-1 text-xs">
           <div className="flex justify-between gap-4"><span>Energy Cost:</span> <span className="font-medium">₹{totalEnergyCost.toFixed(2)}</span></div>
           <div className="flex justify-between gap-4"><span>Conv. Fee:</span> <span className="font-medium">₹{totalConvenienceFee.toFixed(2)}</span></div>
-          <div className="flex justify-between gap-4"><span>Tax/Surcharges:</span> <span className="font-medium">₹{totalTax.toFixed(2)}</span></div>
+          <div className="flex justify-between gap-4"><span>GST collected:</span> <span className="font-medium">₹{totalTax.toFixed(2)}</span></div>
           <div className="border-t border-border/50 pt-1 mt-1 flex justify-between gap-4 font-bold text-primary"><span>Total:</span> <span>₹{totalRevenue.toFixed(2)}</span></div>
         </div>
       )
@@ -72,7 +72,7 @@ export function KPICards() {
     },
     {
       title: 'Energy Delivered',
-      value: `${(totalEnergy / 1000).toFixed(1)} MWh`,
+      value: totalEnergy >= 1000 ? `${(totalEnergy / 1000).toFixed(2)} MWh` : `${totalEnergy.toFixed(1)} kWh`,
       change: 'All time total',
       icon: Plug,
       iconColor: 'text-blue-600 dark:text-blue-400',
