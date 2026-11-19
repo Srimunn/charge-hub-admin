@@ -15,15 +15,24 @@ Charge Hub Admin runs on **Railway** as three services in one project, published
 
 ---
 
-## 1. Create the Railway project
+## 1. Railway project (infrastructure as code)
 
-1. Sign in at [railway.com](https://railway.com) and connect GitHub (grant access to `Srimunn/charge-hub-admin`).
-2. **New Project → Deploy PostgreSQL.** Rename the service `Postgres` (other services reference it by this name).
-3. **+ New → GitHub Repo →** this repo. Rename the service `charge-hub-backend`.
-   - **Settings → Source → Root Directory:** `/backend`
-   - **Settings → Config-as-code:** `/backend/railway.json`
-4. **+ New → GitHub Repo →** the same repo again. Rename the service `charge-hub-frontend`. Leave Root Directory as `/`; it uses `/railway.json`.
-5. For both app services: **Settings → Source → Branch** = `main`.
+The Railway project is **`charge-hub-operator`** (workspace "Magnertia Private Limited's Projects", region Southeast Asia).
+Its services, repo, branch, root directories, Dockerfiles and health checks are defined in
+[`.railway/railway.ts`](.railway/railway.ts), which replaces the old `railway.json` files (Config as Code was retired on 2026-12-01).
+Variables are **not** managed by that file. Set them in the dashboard or with `railway variables`.
+
+```sh
+npm install                      # installs the `railway` SDK (dev dependency)
+railway link                     # choose charge-hub-operator / production
+railway config plan              # preview changes (safe)
+railway config apply             # apply them
+```
+
+On Windows Git Bash, if the SDK complains about the CLI version, run the commands from PowerShell, or prefix them
+with `_=<path to railway.exe>`.
+
+**After merging the PR:** in `.railway/railway.ts` change `BRANCH` to `"main"`, then run `railway config apply`.
 
 ## 2. Environment variables
 
